@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.next/
+*.log
+
+# Uploaded documents persist in a named Docker volume, not on the host,
+# but guard against accidental host-path storage during local debugging.
+/data/uploads/

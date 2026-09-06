@@ -19,6 +19,7 @@ from sqlalchemy.sql import func
 
 from app.config import get_settings
 from app.core.enums import (
+    AgentRunState,
     AgentStatus,
     AgentType,
     AuditEventType,
@@ -26,6 +27,7 @@ from app.core.enums import (
     DecisionStatus,
     DocumentStatus,
     RequestStatus,
+    ReviewRunStatus,
 )
 from app.db.base import Base
 
@@ -180,3 +182,71 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     request: Mapped["Request"] = relationship(back_populates="audit_events")
+
+
+class ReviewRun(Base):
+    """One execution of the review board over a request.
+
+    Re-running a review inserts a new row with a new id; prior runs and their
+    agent_reviews/decisions rows are never updated or deleted, so the history of
+    what was decided and on what basis stays intact.
+    """
+
+    __tablename__ = "review_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
+    )
+
+    status: Mapped[ReviewRunStatus] = mapped_column(
+        SAEnum(ReviewRunStatus, name="review_run_status"),
+        nullable=False,
+        default=ReviewRunStatus.PENDING,
+    )
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    agent_runs: Mapped[list["AgentRun"]] = relationship(
+        back_populates="review_run", cascade="all, delete-orphan"
+    )
+
+
+class AgentRun(Base):
+    """Per-agent state within a review run, polled by the UI.
+
+    Only error *class* and latency are stored, never prompt text or model
+    output -- the audit requirement is to log request_id, agent_type, status,
+    latency, model and error class, and nothing sensitive.
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    review_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("review_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
+    )
+
+    agent: Mapped[AgentType] = mapped_column(SAEnum(AgentType, name="agent_type"), nullable=False)
+    state: Mapped[AgentRunState] = mapped_column(
+        SAEnum(AgentRunState, name="agent_run_state"),
+        nullable=False,
+        default=AgentRunState.PENDING,
+    )
+    error_class: Mapped[str | None] = mapped_column(String(200))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    review_run: Mapped["ReviewRun"] = relationship(back_populates="agent_runs")

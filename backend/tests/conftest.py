@@ -19,7 +19,7 @@ from app.db import models  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import embeddings  # noqa: E402
+from app.services import embeddings, llm  # noqa: E402
 
 
 class FakeEmbeddingProvider:
@@ -101,3 +101,54 @@ VALID_REQUEST_PAYLOAD = {
     "requested_deadline": "2026-12-31",
     "deadline_is_fixed": True,
 }
+
+
+class FakeLLMProvider:
+    """Deterministic stand-in for Ollama.
+
+    Returns whatever `queue` supplies, so a test can script schema-valid
+    output, malformed output, or an outright failure without a model.
+    """
+
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, responses=None):
+        self.responses = list(responses or [])
+        self.calls = []
+
+    def generate_json(self, system, prompt, schema, attempt=1):
+        self.calls.append({"system": system, "prompt": prompt, "schema": schema, "attempt": attempt})
+        if not self.responses:
+            raise AssertionError("FakeLLMProvider ran out of scripted responses")
+        nxt = self.responses.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+
+def valid_agent_payload(**overrides):
+    """A schema-valid PRODUCT review; override any field per test."""
+    payload = {
+        "agent": "PRODUCT",
+        "score": 72,
+        "status": "WARNING",
+        "confidence": 0.8,
+        "summary": "The problem is evidenced but the success measure is vague.",
+        "findings": [],
+        "questions": ["How will success be measured?"],
+        "required_actions": ["Define a success metric"],
+        "assumptions": [],
+        "critical_information_missing": False,
+        "deadline_assessment": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.fixture()
+def fake_llm():
+    provider = FakeLLMProvider()
+    llm.set_llm_provider(provider)
+    yield provider
+    llm.reset_llm_provider()

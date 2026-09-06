@@ -66,3 +66,24 @@ class AuditEventType(str, enum.Enum):
     DECISION_ACCEPTED = "DECISION_ACCEPTED"
     REVISION_REQUESTED = "REVISION_REQUESTED"
     DECISION_OVERRIDDEN = "DECISION_OVERRIDDEN"
+
+
+class EvidenceStatus(str, enum.Enum):
+    """Whether a finding's evidence references survived validation."""
+
+    OK = "OK"
+    MISSING = "MISSING"
+
+
+class ReviewRunStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
+
+
+class AgentRunState(str, enum.Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"

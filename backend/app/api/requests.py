@@ -13,10 +13,12 @@ from app.services.audit import record_event
 router = APIRouter(prefix="/api/requests")
 
 
-def _get_request_or_404(db: Session, request_id: str) -> Request:
+def _get_request_or_404(db: Session, request_id: str | uuid.UUID) -> Request:
+    # Routes vary: the Phase 1 handlers take the path param as a str, the
+    # review/evidence handlers let FastAPI parse it to a UUID. Accept both.
     try:
-        rid = uuid.UUID(request_id)
-    except ValueError:
+        rid = request_id if isinstance(request_id, uuid.UUID) else uuid.UUID(str(request_id))
+    except (ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=404, detail="Request not found")
     obj = db.get(Request, rid)
     if obj is None:

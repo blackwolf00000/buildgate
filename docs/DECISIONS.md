@@ -75,3 +75,79 @@ FastAPI supports async handlers, but the ingestion pipeline, retrieval, and
 this phase's request volume don't need it. Sync SQLAlchemy + `psycopg` v3
 keeps the background-task session handling and pytest fixtures simpler; this
 can be revisited if Phase 2's job-polling load makes it worthwhile.
+
+---
+
+# Architectural Decisions — Phase 2
+
+## No fallback provider for review calls
+
+`app/services/llm.py` has no fallback path at all, deliberately unlike
+`app/services/embeddings.py`. A missing embedding degrades retrieval quality
+and is recoverable; substituting anything for a *governance judgement* is not.
+When Ollama is unreachable the call raises `LLMUnavailableError`, the agent is
+marked `FAILED`, and the review is incomplete — which the decision engine's
+completeness stage turns into "cannot APPROVE". This is the
+"fail loudly, never degrade silently" rule from the customer-isolation
+constraint.
+
+## Retry offsets the seed
+
+The requirements mandate `temperature = 0` and a fixed seed, and separately
+mandate one retry before an agent is marked failed. Those two are in direct
+tension: at temperature 0 with the same seed, a retry re-samples the identical
+token stream, so it is a guaranteed no-op — the second attempt cannot succeed
+where the first failed.
+
+`OllamaProvider.generate_json` therefore offsets the seed by the attempt
+number (`seed + attempt - 1`). The run stays fully reproducible — attempt N of
+a given input is always identical — while a retry actually draws a different
+sample. Without this the `llm_max_attempts` setting would be decorative.
+
+## Schema-constrained generation does not constrain numeric ranges
+
+Ollama's `format` parameter enforces JSON structure and types, not JSON Schema
+`minimum`/`maximum`. Measured: `llama3.2:1b` returned `"confidence": 100` for a
+field bounded 0.0–1.0. It is schema-shaped and still invalid.
+
+Two consequences, both implemented. Pydantic validation after the call is not
+belt-and-braces, it is the only thing enforcing ranges — hence
+`AgentReviewOutput` carries the `ge`/`le` constraints. And `OUTPUT_RANGE_RULE`
+states the ranges in the prompt, which is what stops the violation occurring
+rather than merely catching it. Adding that rule moved `llama3.2:1b` from
+`confidence: 100` to `confidence: 0.75` on the same input.
+
+## Evidence validation is scoped to the agent's own retrieval set
+
+`validate_findings()` checks each `evidence_id` against the chunks retrieved
+for *that specific agent call*, not against every chunk in the request. A real,
+resolvable ID that the agent was never shown is still stripped. The test
+`test_agent_may_only_cite_chunks_it_was_shown` pins this: the question is not
+"does this ID exist" but "was this agent actually shown it".
+
+Stripped IDs are kept on the finding in `stripped_evidence_ids` rather than
+discarded, so a fabrication is visible after the fact. A significant finding
+(MEDIUM or above) left with no surviving evidence is demoted to
+`evidence_status: MISSING`; INFO/LOW findings are allowed to stand uncited, so
+that ordinary observations do not drown the real signal.
+
+## Job records from the start, not retrofitted
+
+`review_runs` + `agent_runs` exist even though Phase 2 ships a single agent and
+could have returned synchronously. One measured `llama3` call against the demo
+corpus exceeds five minutes; seven would hang any browser. Building the polling
+pattern now is cheaper than retrofitting it in Phase 3, and the per-agent
+`agent_runs` rows are what drive the Pending/Running/Complete UI.
+
+`agent_runs` stores only error *class*, latency and attempt count — never
+prompt text, document content, or model output, per the audit requirement to
+log `request_id`, `agent_type`, status, latency, model and error class and
+nothing sensitive.
+
+## The model does not choose which agent it is
+
+`run_agent` overwrites `raw["agent"]` with the spec's agent before validation,
+and blanks `deadline_assessment` for every reviewer except `ENGINEERING`. The
+schema makes both fields available to the model, so without this a reviewer
+could mislabel itself or volunteer a deadline verdict outside its remit that
+the decision engine would then read.

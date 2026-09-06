@@ -1,0 +1,67 @@
+"""The common agent output schema.
+
+This is the contract every reviewer returns, and the same model generates the
+JSON Schema handed to Ollama's `format` parameter. Constraining generation and
+validating afterwards are both required: `format` makes well-formed output the
+overwhelmingly likely case, and Pydantic makes a malformed one an error rather
+than a silent corruption.
+
+`evidence_status` is deliberately *not* model-controlled -- it is set by
+`app.services.evidence` after validating the IDs the model emitted against the
+chunks actually retrieved for that call. See `EVIDENCE_MODEL_FIELDS`.
+"""
+from pydantic import BaseModel, Field
+
+from app.core.enums import (
+    AgentStatus,
+    AgentType,
+    DeadlineAssessment,
+    EvidenceStatus,
+    FindingSeverity,
+)
+
+
+class AgentFinding(BaseModel):
+    severity: FindingSeverity
+    title: str
+    description: str
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class AgentReviewOutput(BaseModel):
+    """Exactly what the model is asked to produce."""
+
+    agent: AgentType
+    score: int = Field(ge=0, le=100)
+    status: AgentStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    summary: str
+    findings: list[AgentFinding] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list)
+    required_actions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    critical_information_missing: bool = False
+    deadline_assessment: DeadlineAssessment | None = None
+
+
+class ValidatedFinding(AgentFinding):
+    """A finding after evidence validation.
+
+    `evidence_ids` holds only IDs that resolve to a chunk actually retrieved
+    for this agent call. `stripped_evidence_ids` records what was removed, so a
+    fabricated reference is auditable rather than merely gone.
+    """
+
+    evidence_status: EvidenceStatus = EvidenceStatus.OK
+    stripped_evidence_ids: list[str] = Field(default_factory=list)
+
+
+def ollama_format_schema() -> dict:
+    """JSON Schema for Ollama's `format` parameter.
+
+    Derived from the Pydantic model so the two can never drift. The evidence
+    validation fields are excluded -- the model is not asked to produce them.
+    """
+    schema = AgentReviewOutput.model_json_schema()
+    schema.pop("title", None)
+    return schema

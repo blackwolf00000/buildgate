@@ -26,6 +26,23 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 150
 
+    # --- LLM review calls (Phase 2). No fallback provider by design. ---
+    llm_model: str = "llama3"
+    llm_temperature: float = 0.0
+    llm_seed: int = 42
+    llm_timeout_seconds: float = 300.0
+    llm_max_attempts: int = 2  # one retry, then the agent is marked failed
+
+    # --- Decision engine (see buildgate-decision-engine-spec.md) ---
+    # Thresholds live here, never inline in the engine, so policy can be tuned
+    # without touching rule code. Changing any of these means bumping
+    # policy_version.
+    policy_version: str = "2026.09.1"
+    confidence_floor: float = 0.60
+    warning_revise_threshold: int = 3
+    approve_min_average_score: int = 75
+    approve_min_agent_score: int = 60
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [e.strip().lower() for e in self.allowed_upload_extensions.split(",") if e.strip()]

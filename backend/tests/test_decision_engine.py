@@ -72,6 +72,31 @@ def test_row2_critical_information_missing():
     assert result.review_complete is True
 
 
+def test_an_evidence_gap_does_not_outrank_a_confident_block():
+    """C2 sits in stage 3, not stage 1. One reviewer saying "I could not tell"
+    must not bury another reviewer's confident CRITICAL finding -- that is what
+    made the seeded demo report REVISE instead of BLOCKED."""
+    board = frozenset({AgentType.PRODUCT, AgentType.SECURITY})
+    result = evaluate(
+        inputs(
+            [
+                review(agent=AgentType.PRODUCT, critical_information_missing=True),
+                review(
+                    agent=AgentType.SECURITY,
+                    status=AgentStatus.FAIL,
+                    confidence=0.9,
+                    severities=(FindingSeverity.CRITICAL,),
+                ),
+            ],
+            expected=board,
+        )
+    )
+    assert result.status is DecisionStatus.BLOCKED
+    assert result.deciding_rule_id == "B2_CRITICAL_FINDING"
+    # the gap is still on the record, just outranked
+    assert "C2_CRITICAL_INFORMATION_MISSING" in result.rule_ids
+
+
 # --- Row 3-6: BLOCK --------------------------------------------------------
 
 def test_row3_confident_block():

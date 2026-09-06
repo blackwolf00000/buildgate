@@ -62,17 +62,24 @@ outranked. `deciding_rule_id` names the one that set the status.
 | Rule | Condition | Status |
 |---|---|---|
 | `C1_REVIEW_INCOMPLETE` | any expected agent did not return | REVISE |
-| `C2_CRITICAL_INFORMATION_MISSING` | any agent set `critical_information_missing` | REVISE |
 
 This stage is what guarantees the requirement *"a review with any failed agent
 can never produce APPROVE."*
 
-> **Open question for review.** Placing completeness first is the literal
-> reading of the requirements. It means an incomplete review that *also*
-> contains a binding BLOCK reports REVISE rather than BLOCKED. The blocker is
-> still recorded in `rule_ids` and still rendered on the decision screen, so
-> nothing is lost — but if a binding BLOCK should outrank incompleteness, swap
-> stages 1 and 2. Flagged rather than silently chosen.
+Stage 1 is **structural completeness only** — did every expected reviewer come
+back. `C2_CRITICAL_INFORMATION_MISSING` was originally here too and was moved to
+stage 3 on 2026-09-06, because an agent reporting that *it* lacked information
+is a judgement about the evidence, not about whether the review ran. Keeping it
+in stage 1 let one reviewer's "I could not tell" outrank another reviewer's
+confident CRITICAL block: on the seeded demo the board reported REVISE via `C2`
+while `B2_CRITICAL_FINDING` sat unused behind it. It now reports BLOCKED via
+`B2`, which is the path the phase plan names, and the evidence gap is still
+recorded in `rule_ids`.
+
+> **Open question, still unresolved.** An incomplete review (`C1`) that *also*
+> contains a binding BLOCK still reports REVISE rather than BLOCKED. That is the
+> literal reading of "completeness first" and is left as it is; the blocker
+> remains in `rule_ids`. Unlike the `C2` case this has not yet bitten anything.
 
 ### Stage 2 — BLOCK
 
@@ -88,6 +95,7 @@ can never produce APPROVE."*
 |---|---|---|
 | `R1_LOW_CONFIDENCE_BLOCK` | any agent `status == BLOCK` with `confidence < confidence_floor` | REVISE |
 | `R2_AGENT_FAIL` | any agent `status == FAIL` | REVISE |
+| `C2_CRITICAL_INFORMATION_MISSING` | any agent set `critical_information_missing` | REVISE |
 | `R3_MULTIPLE_WARNINGS` | count of `WARNING` agents `>= warning_revise_threshold` | REVISE |
 | `R4_HIGH_SEVERITY_FINDING` | any finding `severity == HIGH` | REVISE |
 | `R5_INFEASIBLE_FLEXIBLE_DEADLINE` | `ENGINEERING.deadline_assessment == INFEASIBLE` and **not** `deadline_is_fixed` | REVISE |
@@ -153,6 +161,7 @@ the confidence of the agent carrying the BLOCK.
 | 16 | **no blocker, no fail, two warnings, avg 65** | `F1_FALLBACK_REVISE` | REVISE |
 | 17 | two warnings, avg 78, min 70 | `A1_ALL_CLEAR` | APPROVED |
 | 18 | incomplete review **and** a binding BLOCK | `C1_REVIEW_INCOMPLETE` | REVISE (see open question) |
+| 21 | one agent sets `critical_information_missing`, another raises a confident CRITICAL | `B2_CRITICAL_FINDING` | BLOCKED |
 | 19 | CRITICAL finding, `conf = 0.50`, agent WARNING, avg 85 | `R7_LOW_CONFIDENCE_CRITICAL_FINDING` | REVISE |
 | 20 | CRITICAL finding at any confidence, avg 100 | — | never APPROVED |
 

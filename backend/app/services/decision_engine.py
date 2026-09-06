@@ -62,12 +62,17 @@ class DecisionResult:
 # --- Stage 1: completeness -------------------------------------------------
 
 def _completeness_rules(inputs: DecisionInputs) -> list[str]:
+    """Structural completeness only: did every expected reviewer come back.
+
+    An agent reporting that *it* lacked information is a judgement about the
+    evidence, not about whether the review ran, so C2 lives in stage 3. Keeping
+    it here let a reviewer's "I could not tell" outrank another reviewer's
+    confident CRITICAL block, which buries the stronger signal.
+    """
     fired: list[str] = []
     returned = {r.agent for r in inputs.reviews}
     if not returned >= inputs.expected_agents:
         fired.append("C1_REVIEW_INCOMPLETE")
-    if any(r.critical_information_missing for r in inputs.reviews):
-        fired.append("C2_CRITICAL_INFORMATION_MISSING")
     return fired
 
 
@@ -109,6 +114,10 @@ def _revise_rules(inputs: DecisionInputs, t: DecisionThresholds) -> list[str]:
 
     if any(r.status is AgentStatus.FAIL for r in inputs.reviews):
         fired.append("R2_AGENT_FAIL")
+
+    # Moved out of stage 1: an evidence gap must not outrank a confident BLOCK.
+    if any(r.critical_information_missing for r in inputs.reviews):
+        fired.append("C2_CRITICAL_INFORMATION_MISSING")
 
     warnings = sum(1 for r in inputs.reviews if r.status is AgentStatus.WARNING)
     if warnings >= t.warning_revise_threshold:

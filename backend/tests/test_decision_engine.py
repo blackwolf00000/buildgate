@@ -340,3 +340,53 @@ def test_deadline_assessment_is_ignored_on_non_engineering_agents():
         )
     )
     assert result.status is DecisionStatus.APPROVED
+
+
+# --- regression: a CRITICAL finding must never be discarded ----------------
+
+def test_low_confidence_critical_finding_downgrades_rather_than_disappearing():
+    """Regression. B2 is gated on the confidence floor, so a CRITICAL finding
+    from an unconfident agent used to match no rule at all and be APPROVED --
+    discarded, which the "never discarded" principle forbids. R7 is B2's
+    counterpart exactly as R1 is B1's."""
+    result = evaluate(
+        inputs(
+            [
+                review(
+                    status=AgentStatus.WARNING,
+                    confidence=0.50,
+                    score=85,
+                    severities=(FindingSeverity.CRITICAL,),
+                )
+            ]
+        )
+    )
+    assert result.status is DecisionStatus.REVISE
+    assert result.deciding_rule_id == "R7_LOW_CONFIDENCE_CRITICAL_FINDING"
+    assert "R7_LOW_CONFIDENCE_CRITICAL_FINDING" in result.rule_ids
+
+
+def test_confident_critical_finding_still_blocks():
+    """R7 must not steal cases that belong to B2."""
+    result = evaluate(
+        inputs(
+            [
+                review(
+                    status=AgentStatus.WARNING,
+                    confidence=0.90,
+                    severities=(FindingSeverity.CRITICAL,),
+                )
+            ]
+        )
+    )
+    assert result.status is DecisionStatus.BLOCKED
+    assert result.deciding_rule_id == "B2_CRITICAL_FINDING"
+
+
+@pytest.mark.parametrize("confidence", [0.0, 0.3, 0.59, 0.6, 0.9, 1.0])
+def test_a_critical_finding_can_never_be_approved_at_any_confidence(confidence):
+    """The property the regression above is a specific instance of."""
+    result = evaluate(
+        inputs([review(confidence=confidence, score=100, severities=(FindingSeverity.CRITICAL,))])
+    )
+    assert result.status is not DecisionStatus.APPROVED

@@ -117,6 +117,17 @@ def _revise_rules(inputs: DecisionInputs, t: DecisionThresholds) -> list[str]:
     if any(FindingSeverity.HIGH in r.finding_severities for r in inputs.reviews):
         fired.append("R4_HIGH_SEVERITY_FINDING")
 
+    # The counterpart to B2, exactly as R1 is the counterpart to B1. Without
+    # this a CRITICAL finding from an agent below the confidence floor matches
+    # no rule at all and can be approved -- discarding it, which the "never
+    # discarded" principle forbids.
+    if any(
+        r.confidence < t.confidence_floor
+        and FindingSeverity.CRITICAL in r.finding_severities
+        for r in inputs.reviews
+    ):
+        fired.append("R7_LOW_CONFIDENCE_CRITICAL_FINDING")
+
     assessment = _engineering_assessment(inputs)
     if assessment is DeadlineAssessment.INFEASIBLE and not inputs.deadline_is_fixed:
         fired.append("R5_INFEASIBLE_FLEXIBLE_DEADLINE")

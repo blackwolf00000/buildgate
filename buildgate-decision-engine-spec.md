@@ -1,6 +1,7 @@
 # BuildGate — Decision Engine Specification
 
-**Status: derived, pending review.** This file was reconstructed from
+**Status: derived, reviewed once (2026-09-06), four questions still open for a
+human — see "Unresolved" at the end.** This file was reconstructed from
 `buildgate-core-requirements.md` (Feature 4) because the original spec was
 referenced but absent from the repository. Every rule below traces to a stated
 requirement; the *numeric thresholds* are the part that was never written down
@@ -91,10 +92,18 @@ can never produce APPROVE."*
 | `R4_HIGH_SEVERITY_FINDING` | any finding `severity == HIGH` | REVISE |
 | `R5_INFEASIBLE_FLEXIBLE_DEADLINE` | `ENGINEERING.deadline_assessment == INFEASIBLE` and **not** `deadline_is_fixed` | REVISE |
 | `R6_DOUBTFUL_FIXED_DEADLINE` | `ENGINEERING.deadline_assessment == DOUBTFUL` **and** `deadline_is_fixed` | REVISE |
+| `R7_LOW_CONFIDENCE_CRITICAL_FINDING` | any finding `severity == CRITICAL` on an agent with `confidence < confidence_floor` | REVISE |
 
 `R1` implements *"a BLOCK below the confidence floor downgrades to a REVISE
 trigger; it is never discarded"* — it downgrades the **status**, and the rule id
 still appears in `rule_ids`.
+
+`R7` is the same treatment for a CRITICAL *finding*, and exists because `B2` is
+gated on the confidence floor. Gating `B2` that way is an extrapolation from the
+BLOCK rule — the requirements do not mention confidence in connection with
+finding severity — and without `R7` the extrapolation created a hole: a CRITICAL
+finding from an unconfident agent matched no rule at all and could be APPROVED,
+which discards it. `B1`/`R1` and `B2`/`R7` are now exact parallels.
 
 There is deliberately **no** low-score REVISE rule. Score minimums are APPROVE
 preconditions (stage 4), not REVISE triggers. This is what makes the fallback
@@ -144,6 +153,8 @@ the confidence of the agent carrying the BLOCK.
 | 16 | **no blocker, no fail, two warnings, avg 65** | `F1_FALLBACK_REVISE` | REVISE |
 | 17 | two warnings, avg 78, min 70 | `A1_ALL_CLEAR` | APPROVED |
 | 18 | incomplete review **and** a binding BLOCK | `C1_REVIEW_INCOMPLETE` | REVISE (see open question) |
+| 19 | CRITICAL finding, `conf = 0.50`, agent WARNING, avg 85 | `R7_LOW_CONFIDENCE_CRITICAL_FINDING` | REVISE |
+| 20 | CRITICAL finding at any confidence, avg 100 | — | never APPROVED |
 
 ## Required tests
 
@@ -154,6 +165,7 @@ the confidence of the agent carrying the BLOCK.
 - A review with any failed agent never returns APPROVED.
 - A low-confidence BLOCK appears in `rule_ids`, proving it was downgraded rather
   than discarded.
+- A CRITICAL finding is never APPROVED at any confidence value.
 - Thresholds are read from configuration, not hardcoded.
 
 ## Persistence
@@ -165,3 +177,39 @@ never updated or deleted.
 
 `policy_version` changes whenever any rule or default threshold in this document
 changes. Current value: **`2026.09.1`**.
+
+## Unresolved — needs a human decision
+
+The review on 2026-09-06 found and fixed one defect (`R7`, above). Three further
+points are judgement calls that the requirements do not settle, and they are
+left as they are rather than decided unilaterally.
+
+1. **The four thresholds are invented.** `confidence_floor` 0.60,
+   `warning_revise_threshold` 3, `approve_min_average_score` 75,
+   `approve_min_agent_score` 60. Nothing in the requirements implies these
+   numbers; they were chosen to be defensible and to make the stated fallback
+   case reachable. They have never been validated against real review output.
+
+2. **Stage ordering** (already noted above): completeness before BLOCK means an
+   incomplete review containing a binding BLOCK reports REVISE.
+
+3. **`deadline_assessment == UNKNOWN` fires no rule**, even against a
+   contractually fixed deadline. So "engineering cannot tell whether this date
+   is achievable" currently permits APPROVED. That may be right — UNKNOWN is not
+   a negative finding — but on a *fixed* deadline it is arguably the same class
+   of gap as `DOUBTFUL`, which does trigger `R6`. Deliberately left alone: the
+   requirements list UNKNOWN as a valid value and never say what it should do.
+
+4. **Confidence does not gate APPROVE.** An agent reporting PASS with score 90
+   and `confidence 0.05` approves. Confidence is used only to weigh BLOCK and
+   CRITICAL signals. Whether a uniformly unconfident board should be able to
+   approve anything is a policy question, not a coding one.
+
+Additionally, the requirements state that the decision screen shows
+*"per-category scores, blockers, warnings, positive findings, required actions,
+evidence references, and confidence"*. The UI shows all of these except
+**positive findings**, which have no representation in the agent output schema
+at all — every severity level (`INFO`…`CRITICAL`) describes a problem. Either
+INFO is intended to carry that role, or the schema is missing a way for a
+reviewer to record what is *good* about a request. Worth settling before the
+other six agents are written against the same schema.

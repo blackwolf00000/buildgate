@@ -191,3 +191,38 @@ question, and is what `.env` selects.
 The committed default in `app/config.py` remains `llama3` and is *wrong for an
 8 GB host*; it is left alone because the deployment-appropriate model is a
 deployment decision, and `.env.example` documents the override.
+
+## Override validation is enforced twice, deliberately
+
+`OverrideIn` (Pydantic) and `override_decision()` (service) both reject a
+missing, blank, or empty override field. That duplication is intentional: the
+requirement is that an override is *impossible to submit* with a field missing
+**server-side**, so the service must not assume a particular caller validated
+first. A future internal caller, a script, or a new endpoint gets the same
+guarantee as the HTTP route.
+
+Blank is treated as missing throughout. A risk owner of `"   "` is not a risk
+owner, and `override_accepted_risks: []` is not consent -- the requirement says
+risks must be *explicitly ticked*, so an empty list fails the same way an
+absent key does.
+
+## Decisions are resolved once
+
+Accepting or overriding a decision is a one-time transition; a second attempt
+returns 409. An append-only audit trail whose subject can be edited afterwards
+is not a record of anything, so a decision that has been resolved is frozen.
+
+The supported way to reach a different outcome is to re-run the review, which
+allocates a new `review_run_id` and inserts a new `decisions` row while leaving
+the previous one intact.
+
+`request_revision()` also stamps `accepted_at`/`accepted_by`. Sending a request
+back is a human resolving that decision, not leaving it open -- the distinction
+between accepting the recommendation and overriding it lives in the audit event
+(`REVISION_REQUESTED` records the `recommended_status` it departed from).
+
+## The decision does not move the request on its own
+
+`_finalize()` leaves the request in `REVIEWING`. Only accept, send-for-revision
+or override change its status. AI recommends; a named human decides -- so the
+request status reflects a human action, never a model output.

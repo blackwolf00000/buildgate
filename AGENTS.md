@@ -10,7 +10,7 @@ An AI governance layer that challenges management requests before engineering
 capacity is committed, running entirely locally.
 
 - **Phase 1 — complete, verified, committed** (`73fcb8b`).
-- **Phase 2 — engine done, model settled; Feature 5 and all UI outstanding.**
+- **Phase 2 — backend complete. Only the UI is outstanding.**
   Details below.
 
 ## Status as of 2026-09-06
@@ -26,7 +26,7 @@ Linux `host.docker.internal` path, which was verified by configuration
 
 ### Phase 2 — in progress
 
-**Backend suite: 73 passed.**
+**Backend suite: 93 passed.**
 
 Built and working:
 
@@ -53,18 +53,19 @@ Built and working:
   rule in `buildgate-decision-engine-spec.md`. Wired into `_finalize()` in
   `app/services/review.py`, which writes the `decisions` row and the
   `DECISION_CREATED` audit event. Verified end to end against a real model.
-- Tests: `test_evidence_grounding.py`, `test_review_run.py`,
+- `app/services/decisions.py` + `app/api/decisions.py` — Feature 5. Accept,
+  send for revision, override. Override fields are enforced in the schema *and*
+  the service; blank counts as missing. A resolved decision is frozen (409 on a
+  second action). Emits `DECISION_ACCEPTED` / `REVISION_REQUESTED` /
+  `DECISION_OVERRIDDEN`.
+- Tests: `test_accountability.py`, `test_evidence_grounding.py`, `test_review_run.py`,
   `test_decision_engine.py` (all 18 truth-table rows, purity over 100 calls,
   config-driven thresholds), plus a `FakeLLMProvider` in `conftest.py` so the
   suite never needs Ollama.
 
 ### Phase 2 — NOT built yet
 
-1. **Accept / send for revision / override** (Feature 5) — none of it. Needs
-   server-side enforcement that an override cannot be submitted with any field
-   missing, plus the `DECISION_ACCEPTED` / `REVISION_REQUESTED` /
-   `DECISION_OVERRIDDEN` audit events. `DECISION_CREATED` is already written.
-2. **All Phase 2 UI.** No frontend work has been done at all: no trigger
+1. **All Phase 2 UI.** No frontend work has been done at all: no trigger
    button, no per-agent Pending/Running/Complete polling view, no decision
    screen, no click-to-resolve evidence, no audit reconstruction view. Every
    API endpoint they need already exists.
@@ -166,7 +167,5 @@ docker compose exec -e DATABASE_URL=postgresql+psycopg://buildgate:buildgate@db:
    specified, and the stage-1/stage-2 ordering carries an open question. Both
    are cheap to change: thresholds are config, ordering is one block in
    `evaluate()`.
-2. Accept / revise / override + the remaining audit events (Feature 5). This is
-   the last Phase 2 backend work and needs no model.
-3. Phase 2 UI — trigger, per-agent polling, decision screen, click-to-resolve
+2. Phase 2 UI — trigger, per-agent polling, decision screen, click-to-resolve
    evidence, audit view. Every endpoint already exists.

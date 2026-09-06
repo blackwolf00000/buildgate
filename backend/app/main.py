@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import documents, health, requests, reviews, runtime
+from app.api import decisions, documents, health, requests, reviews, runtime
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,3 +22,4 @@ app.include_router(runtime.router)
 app.include_router(requests.router)
 app.include_router(documents.router)
 app.include_router(reviews.router)
+app.include_router(decisions.router)

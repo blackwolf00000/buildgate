@@ -10,7 +10,8 @@ An AI governance layer that challenges management requests before engineering
 capacity is committed, running entirely locally.
 
 - **Phase 1 — complete, verified, committed** (`73fcb8b`).
-- **Phase 2 — in progress, uncommitted.** Details below.
+- **Phase 2 — decision engine done; Feature 5 and all UI outstanding.**
+  Details below.
 
 ## Status as of 2026-09-06
 
@@ -25,7 +26,7 @@ Linux `host.docker.internal` path, which was verified by configuration
 
 ### Phase 2 — in progress
 
-**Backend suite: 37 passed.** Nothing below is committed yet.
+**Backend suite: 73 passed.**
 
 Built and working:
 
@@ -48,59 +49,63 @@ Built and working:
   source chunk text).
 - `alembic/versions/0002_review_runs.py` — `review_runs` + `agent_runs`.
   Applied cleanly.
-- Tests: `test_evidence_grounding.py` (7), `test_review_run.py` (9), plus a
-  `FakeLLMProvider` in `conftest.py` so the suite never needs Ollama.
+- `app/services/decision_engine.py` — `evaluate()`, pure, implementing every
+  rule in `buildgate-decision-engine-spec.md`. Wired into `_finalize()` in
+  `app/services/review.py`, which writes the `decisions` row and the
+  `DECISION_CREATED` audit event. Verified end to end against a real model.
+- Tests: `test_evidence_grounding.py`, `test_review_run.py`,
+  `test_decision_engine.py` (all 18 truth-table rows, purity over 100 calls,
+  config-driven thresholds), plus a `FakeLLMProvider` in `conftest.py` so the
+  suite never needs Ollama.
 
 ### Phase 2 — NOT built yet
 
-1. **The decision engine.** This is the biggest remaining piece.
-   `buildgate-decision-engine-spec.md` was **missing from the repo** and has
-   been *derived* from `buildgate-core-requirements.md` — it is written and
-   marked "pending review". **It has not been approved and no code implements
-   it yet.** The wiring seam is `_finalize()` in `app/services/review.py`,
-   which currently closes the run without computing a decision.
-   Two things in that spec need a human answer:
-   - the four numeric thresholds (`confidence_floor` etc.) were never specified
-     anywhere and are proposed, not authoritative;
-   - the stage-1/stage-2 ordering open question — whether an incomplete review
-     that also contains a binding BLOCK should report REVISE (current, literal
-     reading) or BLOCKED.
-   Thresholds already live in `app/config.py`, so changing them is a config
-   edit, not an engine edit.
-2. **Accept / send for revision / override** (Feature 5) — none of it. Needs
+1. **Accept / send for revision / override** (Feature 5) — none of it. Needs
    server-side enforcement that an override cannot be submitted with any field
-   missing, plus `DECISION_*` audit events.
-3. **All Phase 2 UI.** No frontend work has been done at all: no trigger
+   missing, plus the `DECISION_ACCEPTED` / `REVISION_REQUESTED` /
+   `DECISION_OVERRIDDEN` audit events. `DECISION_CREATED` is already written.
+2. **All Phase 2 UI.** No frontend work has been done at all: no trigger
    button, no per-agent Pending/Running/Complete polling view, no decision
-   screen, no click-to-resolve evidence, no audit reconstruction view. The API
-   endpoints they need all exist.
+   screen, no click-to-resolve evidence, no audit reconstruction view. Every
+   API endpoint they need already exists.
 
-## The open blocker: model latency and quality
+## The open blocker: the model, on this hardware
 
-This is the risk the phase plan flagged, and it has materialized. Measured on
-this machine (CPU, no GPU), one `PRODUCT` call against the seeded demo request
-(10 chunks, ~8.9k char prompt):
+This is the risk the phase plan flagged, and it is real. **This machine has
+7.4 GB of RAM**, and that is the binding constraint.
 
-| Model | Latency | Result |
-|---|---|---|
-| `llama3.2:1b` | 157.6s | schema-valid, but poor quality — scored 85/PASS while emitting 9 findings that were the taxonomy echoed back, all with empty `evidence_ids` |
-| `llama3` | >300s | timed out at the old `llm_timeout_seconds` default; a trivial prompt alone took 173s |
+| Model | Result |
+|---|---|
+| `llama3` (8B, ~5 GB) | **Cannot load at all.** Ollama returns HTTP 500, `unable to allocate CPU buffer`. An earlier run that appeared to be a 300s timeout was really this. |
+| `llama3.2:1b` (1.3 GB) | Loads and works. One full review call ≈ **295s** on the demo request. |
 
-A benchmark of `llama3` against the full evidence prompt with a 1500s timeout
-was still running when this session was paused — **its result is not known**.
-Re-run it before deciding.
+`llama3.2:1b` completes the pipeline but its *output quality* is poor. On the
+seeded demo request it returned score 85 / `PASS` with 9 findings that were the
+finding taxonomy echoed back, every one `INFO` severity with **zero evidence
+citations** — so the decision engine correctly computed `APPROVED` via
+`A1_ALL_CLEAR`.
 
-Consequences to weigh, per the phase plan's own guidance ("if one call takes 90
-seconds, seven will take ten minutes, and that changes what Phase 3 can look
-like"):
+That is a problem, because `buildgate-core-requirements.md` Feature 4 says the
+demo request is "done when it reliably produces BLOCK". The engine is right;
+the reviewer feeding it is not good enough. Two Phase 2 exit criteria are
+effectively blocked on this:
 
-- `llm_model` currently defaults to `llama3` in `app/config.py`, which does not
-  complete reliably here. This default is probably wrong and is unresolved.
-- `llm_timeout_seconds` defaults to 300.0, which is below what `llama3` needs.
-- Options not yet tried: a flatter output schema (the phase plan suggests
-  this), passing fewer chunks, or a different model entirely.
+- "every finding's evidence reference opens to real local text" — vacuous while
+  the model cites nothing;
+- the demo producing BLOCK.
 
-**Do not start Phase 3 until this is settled.** Seven agents multiply it.
+`llm_model` still defaults to `llama3` in `app/config.py`, which **cannot run
+here**. Local `.env` overrides it to `llama3.2:1b` with a 900s timeout. The
+committed default was deliberately left alone because the model choice is a
+human decision.
+
+Options not yet tried, in rough order of promise: a mid-size quantized model
+that fits in ~2-3 GB (`qwen2.5:3b`, `phi3:mini`, `gemma2:2b` — none installed,
+each needs an `ollama pull`); a flatter output schema, which the phase plan
+explicitly suggests; passing fewer chunks; or more RAM / a GPU.
+
+**Do not start Phase 3 until this is settled.** Seven agents multiply both the
+latency and the quality problem.
 
 ## Two findings worth not rediscovering
 
@@ -162,13 +167,12 @@ docker compose exec -e DATABASE_URL=postgresql+psycopg://buildgate:buildgate@db:
 
 ## Next step on resume
 
-1. Re-run the `llama3` full-evidence benchmark and settle the model / timeout /
-   schema-shape question above. Nothing else in Phase 2 is blocked by it, but
-   Phase 3 is.
-2. Get the derived `buildgate-decision-engine-spec.md` reviewed, then implement
-   `evaluate()` and its truth-table tests, and wire it into `_finalize()`.
-3. Accept / revise / override + audit (Feature 5).
+1. Settle the model question above — it gates the demo producing BLOCK, and it
+   gates Phase 3 entirely.
+2. Get `buildgate-decision-engine-spec.md` reviewed. It is **implemented and
+   fully tested**, but the four numeric thresholds were derived rather than
+   specified, and the stage-1/stage-2 ordering carries an open question. Both
+   are cheap to change: thresholds are config, ordering is one block in
+   `evaluate()`.
+3. Accept / revise / override + the remaining audit events (Feature 5).
 4. Phase 2 UI.
-
-The working tree carries all of the above uncommitted. Consider committing the
-working Phase 2 backend before continuing.

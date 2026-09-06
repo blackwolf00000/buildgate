@@ -20,10 +20,24 @@ from app.config import get_settings
 from app.core.enums import (
     AgentRunState,
     AuditEventType,
+    FindingSeverity,
     RequestStatus,
     ReviewRunStatus,
 )
-from app.db.models import AgentReview, AgentRun, Request, ReviewRun
+from app.services.decision_engine import (
+    AgentReviewInput,
+    DecisionInputs,
+    DecisionThresholds,
+    evaluate,
+)
+from app.db.models import (
+    AgentReview,
+    AgentRun,
+    Decision,
+    DocumentChunk,
+    Request,
+    ReviewRun,
+)
 from app.services.audit import record_event
 from app.services.llm import get_llm_provider
 
@@ -177,17 +191,57 @@ def execute_review(db: Session, review_run_id) -> None:
             },
         )
 
-    _finalize(db, run)
+    _finalize(db, run, request)
 
 
-def _finalize(db: Session, run: ReviewRun) -> None:
-    """Close out the run. The decision is computed separately.
+def _thresholds() -> DecisionThresholds:
+    """Thresholds always come from configuration, never inline constants."""
+    settings = get_settings()
+    return DecisionThresholds(
+        confidence_floor=settings.confidence_floor,
+        warning_revise_threshold=settings.warning_revise_threshold,
+        approve_min_average_score=settings.approve_min_average_score,
+        approve_min_agent_score=settings.approve_min_agent_score,
+    )
 
-    NOTE (Phase 2, in progress): the decision engine is specified in
-    buildgate-decision-engine-spec.md and wires in here -- evaluate() over the
-    agent_reviews rows for this run, then a `decisions` row and a
-    DECISION_CREATED audit event. Until that lands the run completes and the
-    request is left in REVIEWING.
+
+def _decision_inputs(db: Session, run: ReviewRun, request: Request) -> DecisionInputs:
+    """Project the persisted agent_reviews rows into the engine's pure inputs."""
+    rows = db.query(AgentReview).filter(AgentReview.review_run_id == run.id).all()
+
+    reviews = []
+    for row in rows:
+        severities = []
+        for finding in row.findings or []:
+            try:
+                severities.append(FindingSeverity(finding["severity"]))
+            except (KeyError, ValueError, TypeError):
+                continue
+        reviews.append(
+            AgentReviewInput(
+                agent=row.agent,
+                score=row.score,
+                status=row.status,
+                confidence=float(row.confidence),
+                critical_information_missing=row.critical_information_missing,
+                deadline_assessment=row.deadline_assessment,
+                finding_severities=tuple(severities),
+            )
+        )
+
+    return DecisionInputs(
+        reviews=tuple(reviews),
+        expected_agents=EXPECTED_AGENTS,
+        deadline_is_fixed=request.deadline_is_fixed,
+    )
+
+
+def _finalize(db: Session, run: ReviewRun, request: Request) -> Decision:
+    """Close the run and compute its decision.
+
+    The request is deliberately left in REVIEWING. The decision is a
+    *recommendation* until a named human accepts or overrides it -- that is
+    Feature 5's whole point -- so only those actions move the request's status.
     """
     db.refresh(run)
     failed = [r for r in run.agent_runs if r.state is AgentRunState.FAILED]
@@ -200,12 +254,58 @@ def _finalize(db: Session, run: ReviewRun) -> None:
         )
     db.commit()
 
+    result = evaluate(_decision_inputs(db, run, request), _thresholds())
+
+    decision = Decision(
+        review_run_id=run.id,
+        request_id=request.id,
+        status=result.status,
+        policy_version=run.policy_version,
+        model_name=run.model_name,
+        review_complete=result.review_complete,
+        rule_ids=result.rule_ids,
+    )
+    db.add(decision)
+    db.commit()
+    db.refresh(decision)
+
+    # Enough to explain the outcome without reading source: which rules fired,
+    # which one decided, the policy and model behind it, and what evidence was
+    # on the table. References only -- never document or prompt content.
+    document_ids = [
+        str(document_id)
+        for (document_id,) in db.query(DocumentChunk.document_id)
+        .filter(DocumentChunk.request_id == request.id)
+        .distinct()
+        .all()
+    ]
+    record_event(
+        db,
+        request.id,
+        AuditEventType.DECISION_CREATED,
+        payload={
+            "review_run_id": str(run.id),
+            "decision_id": str(decision.id),
+            "status": result.status.value,
+            "deciding_rule_id": result.deciding_rule_id,
+            "rule_ids": result.rule_ids,
+            "review_complete": result.review_complete,
+            "policy_version": run.policy_version,
+            "model_name": run.model_name,
+            "failed_agents": [r.agent.value for r in failed],
+            "document_ids": document_ids,
+        },
+    )
+
     logger.info(
-        "review_run=%s request_id=%s complete failed_agents=%d",
+        "review_run=%s request_id=%s complete failed_agents=%d decision=%s rule=%s",
         run.id,
         run.request_id,
         len(failed),
+        result.status.value,
+        result.deciding_rule_id,
     )
+    return decision
 
 
 def review_is_complete(run: ReviewRun) -> bool:

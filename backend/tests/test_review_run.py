@@ -168,3 +168,61 @@ def test_review_endpoint_returns_202_and_is_pollable(client, db_session, fake_ll
     poll = client.get(f"/api/reviews/{body['id']}")
     assert poll.status_code == 200
     assert poll.json()["id"] == body["id"]
+
+
+def test_completed_run_persists_a_decision_and_audit_record(client, db_session, fake_llm):
+    from app.core.enums import AuditEventType, DecisionStatus
+    from app.db.models import AuditEvent, Decision
+
+    request = _request_with_evidence(client, db_session)
+    # score 72 with no blocker, no fail, one warning -> below the approve
+    # average of 75, matches no REVISE rule -> the fallback
+    fake_llm.responses = [valid_agent_payload()]
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    decision = db_session.query(Decision).filter(Decision.review_run_id == run.id).one()
+    assert decision.status is DecisionStatus.REVISE
+    assert decision.review_complete is True
+    assert decision.rule_ids == ["F1_FALLBACK_REVISE"]
+    assert decision.policy_version and decision.model_name == "fake-model"
+
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.event_type == AuditEventType.DECISION_CREATED)
+        .one()
+    )
+    assert event.payload["deciding_rule_id"] == "F1_FALLBACK_REVISE"
+    assert event.payload["document_ids"]  # evidence on the table is recorded
+
+
+def test_failed_agent_run_produces_an_incomplete_decision_that_cannot_approve(
+    client, db_session, fake_llm
+):
+    from app.core.enums import DecisionStatus
+    from app.db.models import Decision
+
+    request = _request_with_evidence(client, db_session)
+    fake_llm.responses = [LLMUnavailableError("down"), LLMUnavailableError("down")]
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    decision = db_session.query(Decision).filter(Decision.review_run_id == run.id).one()
+    assert decision.review_complete is False
+    assert decision.status is not DecisionStatus.APPROVED
+    assert "C1_REVIEW_INCOMPLETE" in decision.rule_ids
+
+
+def test_decision_leaves_the_request_in_reviewing_until_a_human_acts(
+    client, db_session, fake_llm
+):
+    request = _request_with_evidence(client, db_session)
+    fake_llm.responses = [valid_agent_payload()]
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    # the decision is a recommendation; only accept/override may move the request
+    assert db_session.get(Request, request.id).status is RequestStatus.REVIEWING

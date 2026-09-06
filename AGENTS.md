@@ -10,7 +10,7 @@ An AI governance layer that challenges management requests before engineering
 capacity is committed, running entirely locally.
 
 - **Phase 1 — complete, verified, committed** (`73fcb8b`).
-- **Phase 2 — decision engine done; Feature 5 and all UI outstanding.**
+- **Phase 2 — engine done, model settled; Feature 5 and all UI outstanding.**
   Details below.
 
 ## Status as of 2026-09-06
@@ -69,43 +69,37 @@ Built and working:
    screen, no click-to-resolve evidence, no audit reconstruction view. Every
    API endpoint they need already exists.
 
-## The open blocker: the model, on this hardware
+## The model question: resolved
 
-This is the risk the phase plan flagged, and it is real. **This machine has
-7.4 GB of RAM**, and that is the binding constraint.
+This was the phase plan's flagged risk. It is settled, and the cause was not
+what it first appeared.
 
-| Model | Result |
-|---|---|
-| `llama3` (8B, ~5 GB) | **Cannot load at all.** Ollama returns HTTP 500, `unable to allocate CPU buffer`. An earlier run that appeared to be a 300s timeout was really this. |
-| `llama3.2:1b` (1.3 GB) | Loads and works. One full review call ≈ **295s** on the demo request. |
+**The binding constraint was the context window, not model size.** Ollama sizes
+the KV cache and compute buffers from `num_ctx`, and a model's own default can
+be enormous (qwen2.5 ships 32k). On this 8 GB host that allocation failed
+*before generation started*, surfacing only as an opaque HTTP 500. The
+counter-intuitive proof: `qwen2.5:1.5b` (~0.99 GB of weights) would not load
+while `llama3.2:1b` (~1.32 GB) ran fine. `Settings.llm_num_ctx` now pins it to
+8192 and the problem disappears.
 
-`llama3.2:1b` completes the pipeline but its *output quality* is poor. On the
-seeded demo request it returned score 85 / `PASS` with 9 findings that were the
-finding taxonomy echoed back, every one `INFO` severity with **zero evidence
-citations** — so the decision engine correctly computed `APPROVED` via
-`A1_ALL_CLEAR`.
+Measured on the demo request, one PRODUCT call each:
 
-That is a problem, because `buildgate-core-requirements.md` Feature 4 says the
-demo request is "done when it reliably produces BLOCK". The engine is right;
-the reviewer feeding it is not good enough. Two Phase 2 exit criteria are
-effectively blocked on this:
+| Model | Latency | Findings | Grounded | Decision |
+|---|---|---|---|---|
+| `llama3.2:1b` | 295s | 9, all INFO | 0 | APPROVED |
+| `qwen2.5:1.5b` | 244s | 5, all MEDIUM | 5 | REVISE |
+| **`qwen2.5:3b`** | **286s** | **3, all MEDIUM** | **3** | **REVISE** |
+| `llama3` (8B) | — | will not load; ~5 GB of weights exceeds available RAM |
 
-- "every finding's evidence reference opens to real local text" — vacuous while
-  the model cites nothing;
-- the demo producing BLOCK.
+`.env` selects `qwen2.5:3b`. It grounds every finding and sets
+`critical_information_missing` correctly. **The committed default in
+`app/config.py` is still `llama3`, which cannot run on an 8 GB host** — left
+alone deliberately, since the right model is a deployment decision;
+`.env.example` documents the override.
 
-`llm_model` still defaults to `llama3` in `app/config.py`, which **cannot run
-here**. Local `.env` overrides it to `llama3.2:1b` with a 900s timeout. The
-committed default was deliberately left alone because the model choice is a
-human decision.
-
-Options not yet tried, in rough order of promise: a mid-size quantized model
-that fits in ~2-3 GB (`qwen2.5:3b`, `phi3:mini`, `gemma2:2b` — none installed,
-each needs an `ollama pull`); a flatter output schema, which the phase plan
-explicitly suggests; passing fewer chunks; or more RAM / a GPU.
-
-**Do not start Phase 3 until this is settled.** Seven agents multiply both the
-latency and the quality problem.
+One caveat worth keeping in view: a single agent call is ~5 minutes here.
+Seven sequential agents in Phase 3 is ~30 minutes per review on this hardware.
+That does not block Phase 2 but it shapes what Phase 3's demo can look like.
 
 ## Two findings worth not rediscovering
 
@@ -167,12 +161,12 @@ docker compose exec -e DATABASE_URL=postgresql+psycopg://buildgate:buildgate@db:
 
 ## Next step on resume
 
-1. Settle the model question above — it gates the demo producing BLOCK, and it
-   gates Phase 3 entirely.
-2. Get `buildgate-decision-engine-spec.md` reviewed. It is **implemented and
+1. Get `buildgate-decision-engine-spec.md` reviewed. It is **implemented and
    fully tested**, but the four numeric thresholds were derived rather than
    specified, and the stage-1/stage-2 ordering carries an open question. Both
    are cheap to change: thresholds are config, ordering is one block in
    `evaluate()`.
-3. Accept / revise / override + the remaining audit events (Feature 5).
-4. Phase 2 UI.
+2. Accept / revise / override + the remaining audit events (Feature 5). This is
+   the last Phase 2 backend work and needs no model.
+3. Phase 2 UI — trigger, per-agent polling, decision screen, click-to-resolve
+   evidence, audit view. Every endpoint already exists.

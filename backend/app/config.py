@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
 
     # --- LLM review calls (Phase 2). No fallback provider by design. ---
-    llm_model: str = "llama3"
+    # qwen2.5:3b is the default because it is what has actually been verified
+    # end to end here: it grounds its findings and fits alongside the stack in
+    # ~8GB. llama3 (8B) needs ~5GB of weights and will not load on such a host.
+    llm_model: str = "qwen2.5:3b"
     llm_temperature: float = 0.0
     llm_seed: int = 42
     llm_timeout_seconds: float = 300.0

@@ -48,15 +48,15 @@ CSV handling.
 
 ### Exit criteria
 
-- [ ] `docker compose up` starts the stack on a clean machine
-- [ ] Linux path works — `extra_hosts: ["host.docker.internal:host-gateway"]`
+- [x] `docker compose up` starts the stack on a clean machine
+- [x] Linux path works — `extra_hosts: ["host.docker.internal:host-gateway"]`
       on the api service, or a documented alternative
-- [ ] A request can be created, listed, reopened
-- [ ] Demo documents upload, chunk, and embed without error
-- [ ] A retrieval query against the demo corpus returns sensible chunks
-- [ ] Extraction failure marks `PROCESSING_FAILED` without failing the request
-- [ ] Tests pass: request creation, upload validation, chunking, path traversal
-- [ ] `README.md` setup instructions verified from scratch
+- [x] A request can be created, listed, reopened
+- [x] Demo documents upload, chunk, and embed without error
+- [x] A retrieval query against the demo corpus returns sensible chunks
+- [x] Extraction failure marks `PROCESSING_FAILED` without failing the request
+- [x] Tests pass: request creation, upload validation, chunking, path traversal
+- [x] `README.md` setup instructions verified from scratch
 
 ### Main risks
 
@@ -124,14 +124,14 @@ The other six agents. Privacy page. Visual polish.
 
 ### Exit criteria
 
-- [ ] `PRODUCT` agent returns schema-valid output on the demo request
-- [ ] Every finding's evidence reference opens to real local text
-- [ ] A test injecting a fabricated `evidence_id` shows it stripped
-- [ ] All truth-table rows in the engine spec pass with mocked input
-- [ ] `evaluate()` proven pure — same input, same output across 100 runs
-- [ ] Override cannot be submitted with any field missing, tested server-side
-- [ ] A failed agent produces an incomplete review that cannot APPROVE
-- [ ] Full audit history visible for a completed request
+- [x] `PRODUCT` agent returns schema-valid output on the demo request
+- [x] Every finding's evidence reference opens to real local text
+- [x] A test injecting a fabricated `evidence_id` shows it stripped
+- [x] All truth-table rows in the engine spec pass with mocked input
+- [x] `evaluate()` proven pure — same input, same output across 100 runs
+- [x] Override cannot be submitted with any field missing, tested server-side
+- [x] A failed agent produces an incomplete review that cannot APPROVE
+- [x] Full audit history visible for a completed request
 
 ### Main risks
 

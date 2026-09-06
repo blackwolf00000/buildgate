@@ -10,7 +10,9 @@ An AI governance layer that challenges management requests before engineering
 capacity is committed, running entirely locally.
 
 - **Phase 1 — complete, verified, committed** (`73fcb8b`).
-- **Phase 2 — complete.** Backend and UI, verified end to end.
+- **Phase 2 — complete.** Boundary rule satisfied: full suite, clean
+  `docker compose up`, README, DECISIONS, commit. Exit criteria ticked in
+  `buildgate-phase-plan.md`.
   Details below.
 
 ## Status as of 2026-09-06
@@ -101,11 +103,12 @@ Measured on the demo request, one PRODUCT call each:
 | **`qwen2.5:3b`** | **286s** | **3, all MEDIUM** | **3** | **REVISE** |
 | `llama3` (8B) | — | will not load; ~5 GB of weights exceeds available RAM |
 
-`.env` selects `qwen2.5:3b`. It grounds every finding and sets
-`critical_information_missing` correctly. **The committed default in
-`app/config.py` is still `llama3`, which cannot run on an 8 GB host** — left
-alone deliberately, since the right model is a deployment decision;
-`.env.example` documents the override.
+`qwen2.5:3b` is now the committed default in `app/config.py`. It grounds every
+finding, sets `critical_information_missing` correctly, and fits alongside the
+stack in ~8 GB. The previous default of `llama3` could not load on the machine
+it was developed on, which made it a defect rather than a preference. `.env`
+and `.env.example` document `LLM_MODEL` for hosts that can run something
+larger.
 
 One caveat worth keeping in view: a single agent call is ~5 minutes here.
 Seven sequential agents in Phase 3 is ~30 minutes per review on this hardware.

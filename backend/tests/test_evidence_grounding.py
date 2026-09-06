@@ -21,6 +21,7 @@ def test_fabricated_evidence_id_is_stripped():
 
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.HIGH,
             title="Export bypasses classification review",
             description="...",
@@ -43,6 +44,7 @@ def test_finding_with_only_fabricated_evidence_is_demoted_to_missing():
 
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.CRITICAL,
             title="Invented policy breach",
             description="...",
@@ -60,6 +62,7 @@ def test_finding_with_only_fabricated_evidence_is_demoted_to_missing():
 def test_significant_finding_with_no_evidence_at_all_is_missing():
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.HIGH,
             title="Asserted with no citation",
             description="...",
@@ -77,6 +80,7 @@ def test_informational_finding_without_evidence_is_not_flagged():
     # them as MISSING would drown the real signal.
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.INFO,
             title="Request is clearly written",
             description="...",
@@ -97,6 +101,7 @@ def test_agent_may_only_cite_chunks_it_was_shown():
 
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.MEDIUM,
             title="Cites a chunk from another agent's context",
             description="...",
@@ -115,6 +120,7 @@ def test_duplicate_evidence_ids_are_collapsed():
     real = _real_id()
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.MEDIUM,
             title="Cites the same chunk twice",
             description="...",
@@ -131,6 +137,7 @@ def test_blank_and_malformed_ids_are_stripped():
     real = _real_id()
     findings = [
         AgentFinding(
+            category="PROBLEM_EVIDENCE",
             severity=FindingSeverity.MEDIUM,
             title="Emits junk",
             description="...",

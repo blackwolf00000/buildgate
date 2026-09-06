@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.agents import AGENT_REGISTRY, EXPECTED_AGENTS
-from app.agents.base import run_agent
+from app.agents.base import collect_evidence_for_all, run_agent
 from app.config import get_settings
 from app.core.enums import (
     AgentRunState,
@@ -118,7 +118,27 @@ def execute_review(db: Session, review_run_id) -> None:
     run.status = ReviewRunStatus.RUNNING
     db.commit()
 
-    for agent_run in sorted(run.agent_runs, key=lambda r: r.agent.value):
+    # One embedding pass for the whole board before any generation, so Ollama
+    # swaps between the embedding model and the review model once rather than
+    # once per agent. If retrieval fails the run cannot proceed at all, so this
+    # is deliberately outside the per-agent try/except.
+    ordered = sorted(run.agent_runs, key=lambda r: r.agent.value)
+    specs = [AGENT_REGISTRY[r.agent] for r in ordered if r.agent in AGENT_REGISTRY]
+    try:
+        evidence_by_agent = collect_evidence_for_all(db, request.id, specs)
+    except Exception as exc:  # noqa: BLE001 - surfaced on the run, not swallowed
+        logger.warning(
+            "review_run=%s retrieval failed error_class=%s", run.id, type(exc).__name__
+        )
+        db.rollback()
+        run = db.get(ReviewRun, review_run_id)
+        run.status = ReviewRunStatus.FAILED
+        run.error = f"Evidence retrieval failed: {type(exc).__name__}"
+        run.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    for agent_run in ordered:
         spec = AGENT_REGISTRY.get(agent_run.agent)
         if spec is None:
             agent_run.state = AgentRunState.FAILED
@@ -131,7 +151,12 @@ def execute_review(db: Session, review_run_id) -> None:
 
         try:
             result = run_agent(
-                db, request, spec, provider, max_attempts=settings.llm_max_attempts
+                db,
+                request,
+                spec,
+                provider,
+                max_attempts=settings.llm_max_attempts,
+                evidence=evidence_by_agent.get(agent_run.agent),
             )
         except Exception as exc:  # noqa: BLE001 - a failed agent must not kill the run
             # Log the error class only. Never the prompt, the documents, or the

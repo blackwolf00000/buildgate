@@ -64,21 +64,39 @@ class AgentSpec:
     agent: AgentType
     role: str
     retrieval_query: str
-    finding_categories: tuple[str, ...]
+    # (CATEGORY_CODE, what that category means). The codes become a JSON Schema
+    # enum on the finding's `category` field, so the taxonomy is enforced at
+    # generation rather than merely requested in prose.
+    finding_categories: tuple[tuple[str, str], ...]
     scoring_guidance: str
 
+    @property
+    def category_codes(self) -> tuple[str, ...]:
+        return tuple(code for code, _ in self.finding_categories)
+
     def system_prompt(self) -> str:
-        categories = "\n".join(f"- {c}" for c in self.finding_categories)
+        categories = "\n".join(
+            f"- {code}: {meaning}" for code, meaning in self.finding_categories
+        )
         return f"""You are the {self.agent.value} reviewer on BuildGate, a governance system that
 challenges internal engineering requests before capacity is committed.
 
 {self.role}
 
-You may only raise findings that fall into one of your categories:
+Every finding must carry a `category` from your own list, and only these:
 {categories}
 
 If an issue is real but belongs to another reviewer's remit, leave it out. It
 is not your job to cover everything -- another specialist covers the rest.
+
+The `category` says which kind of problem a finding is. The `title` must say
+what is actually wrong with *this specific request*, in your own words -- a
+short, concrete statement a reader could act on. Never use the category code,
+or a restatement of its meaning, as the title. Write the title as though the
+category were not shown.
+
+Raise a finding only where you have something specific to say. You are not
+working through a checklist, and most reviews will not use every category.
 
 {self.scoring_guidance}
 
@@ -125,22 +143,42 @@ Notes: {request.notes or "not stated"}
 {evidence_block}"""
 
 
-def collect_evidence(
-    db: Session, request_id, spec: AgentSpec
-) -> tuple[list[tuple[str, str, str]], set[str]]:
-    """Retrieve this agent's evidence and the IDs it is allowed to cite."""
-    provider = get_embedding_provider()
-    query_embedding = provider.embed([spec.retrieval_query])[0]
-    scored = retrieve(db, request_id, query_embedding)
+Evidence = tuple[list[tuple[str, str, str]], set[str]]
 
+
+def _retrieve_for(db: Session, request_id, query_embedding: list[float]) -> Evidence:
     chunks: list[tuple[str, str, str]] = []
     allowed: set[str] = set()
-    for chunk, document, _score in scored:
+    for chunk, document, _score in retrieve(db, request_id, query_embedding):
         evidence_id = evidence_id_for(chunk.document_id, chunk.chunk_index)
         chunks.append((evidence_id, document.original_filename, chunk.content))
         allowed.add(evidence_id)
-
     return chunks, allowed
+
+
+def collect_evidence(db: Session, request_id, spec: AgentSpec) -> Evidence:
+    """Retrieve one agent's evidence and the IDs it is allowed to cite."""
+    provider = get_embedding_provider()
+    return _retrieve_for(db, request_id, provider.embed([spec.retrieval_query])[0])
+
+
+def collect_evidence_for_all(
+    db: Session, request_id, specs: list[AgentSpec]
+) -> dict[AgentType, Evidence]:
+    """Embed every agent's retrieval query in a single call, up front.
+
+    Retrieval and generation use *different* Ollama models. Interleaving them
+    per agent (embed, generate, embed, generate) makes Ollama evict and reload
+    a model on every step, which on a memory-constrained host is slow enough to
+    time the embedding call out entirely. Doing all the embedding first costs
+    one model swap for the whole run instead of one per agent.
+    """
+    provider = get_embedding_provider()
+    embeddings = provider.embed([spec.retrieval_query for spec in specs])
+    return {
+        spec.agent: _retrieve_for(db, request_id, embedding)
+        for spec, embedding in zip(specs, embeddings)
+    }
 
 
 @dataclass
@@ -158,16 +196,22 @@ def run_agent(
     spec: AgentSpec,
     provider: LLMProvider,
     max_attempts: int = 2,
+    evidence: Evidence | None = None,
 ) -> AgentRunResult:
     """Run one reviewer. Raises if it never produced schema-valid output.
 
     Never substitutes a placeholder score -- a failed agent is a failed agent,
     and the decision engine treats the review as incomplete.
+
+    `evidence` may be pre-collected by the caller (see
+    `collect_evidence_for_all`); when omitted this agent retrieves its own.
     """
-    chunks, allowed_ids = collect_evidence(db, request.id, spec)
+    chunks, allowed_ids = evidence if evidence is not None else collect_evidence(
+        db, request.id, spec
+    )
     system = spec.system_prompt()
     prompt = build_user_prompt(request, chunks)
-    schema = ollama_format_schema()
+    schema = ollama_format_schema(spec.category_codes)
 
     started = time.monotonic()
     last_error: Exception | None = None

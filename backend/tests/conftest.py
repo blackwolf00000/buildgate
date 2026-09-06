@@ -113,15 +113,20 @@ class FakeLLMProvider:
     name = "fake"
     model = "fake-model"
 
-    def __init__(self, responses=None):
+    def __init__(self, responses=None, default=None):
+        # `responses` is consumed in order; `default` is what every remaining
+        # call returns once it is exhausted. With a multi-agent board most tests
+        # want one scripted outcome applied to every reviewer, which is what
+        # `default` is for.
         self.responses = list(responses or [])
+        self.default = default
         self.calls = []
 
     def generate_json(self, system, prompt, schema, attempt=1):
         self.calls.append({"system": system, "prompt": prompt, "schema": schema, "attempt": attempt})
-        if not self.responses:
+        nxt = self.responses.pop(0) if self.responses else self.default
+        if nxt is None:
             raise AssertionError("FakeLLMProvider ran out of scripted responses")
-        nxt = self.responses.pop(0)
         if isinstance(nxt, Exception):
             raise nxt
         return nxt
@@ -132,7 +137,10 @@ def valid_agent_payload(**overrides):
     payload = {
         "agent": "PRODUCT",
         "score": 72,
-        "status": "WARNING",
+        # PASS rather than WARNING: with a multi-agent board, a WARNING from
+        # every reviewer trips R3_MULTIPLE_WARNINGS, and most tests want the
+        # quieter path where only the score keeps it below APPROVE.
+        "status": "PASS",
         "confidence": 0.8,
         "summary": "The problem is evidenced but the success measure is vague.",
         "findings": [],

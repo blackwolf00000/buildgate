@@ -32,7 +32,7 @@ VALID_OVERRIDE = {
 def _decided_request(client, db_session, fake_llm, **agent_overrides):
     """Drive a request through a full review so a decision row exists."""
     created = client.post("/api/requests", json=VALID_REQUEST_PAYLOAD).json()
-    fake_llm.responses = [valid_agent_payload(**agent_overrides)]
+    fake_llm.default = valid_agent_payload(**agent_overrides)
     request = db_session.get(Request, created["id"])
 
     run = start_review(db_session, request)
@@ -159,7 +159,7 @@ def test_accept_applies_the_recommendation_to_the_request(client, db_session, fa
     db_session.refresh(decision)
     assert decision.accepted_by == "Marcus Webb"
     assert decision.accepted_at is not None
-    # the fake agent scores 72 -> the engine's fallback REVISE
+    # every reviewer scores 72 -> below the approve floor -> fallback REVISE
     assert decision.status is DecisionStatus.REVISE
     assert db_session.get(Request, request.id).status is RequestStatus.REVISE
 

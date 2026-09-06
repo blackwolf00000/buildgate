@@ -75,6 +75,7 @@ def validate_findings(
 
         validated.append(
             ValidatedFinding(
+                category=finding.category,
                 severity=finding.severity,
                 title=finding.title,
                 description=finding.description,

@@ -3,9 +3,15 @@ import io
 
 import pytest
 
-from app.agents import EXPECTED_AGENTS
+from app.agents import AGENT_REGISTRY, EXPECTED_AGENTS
 from app.agents.base import PROMPT_INJECTION_RULE
-from app.core.enums import AgentRunState, RequestStatus, ReviewRunStatus
+from app.core.enums import (
+    AgentRunState,
+    AgentType,
+    DeadlineAssessment,
+    RequestStatus,
+    ReviewRunStatus,
+)
 from app.db.models import AgentReview, Request, ReviewRun
 from app.services.llm import LLMInvalidOutputError, LLMUnavailableError
 from app.services.review import (
@@ -60,7 +66,7 @@ def test_second_concurrent_review_is_rejected(client, db_session, fake_llm):
 
 def test_successful_run_persists_agent_review(client, db_session, fake_llm):
     request = _request_with_evidence(client, db_session)
-    fake_llm.responses = [valid_agent_payload()]
+    fake_llm.default = valid_agent_payload()
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
@@ -70,27 +76,65 @@ def test_successful_run_persists_agent_review(client, db_session, fake_llm):
     assert all(r.state is AgentRunState.COMPLETE for r in run.agent_runs)
     assert review_is_complete(run) is True
 
-    review = db_session.query(AgentReview).filter(AgentReview.review_run_id == run.id).one()
-    assert review.agent.value == "PRODUCT"
-    assert review.score == 72
-    assert review.summary
+    reviews = db_session.query(AgentReview).filter(AgentReview.review_run_id == run.id).all()
+    assert {r.agent for r in reviews} == set(EXPECTED_AGENTS)
+    product = next(r for r in reviews if r.agent is AgentType.PRODUCT)
+    assert product.score == 72
+    assert product.summary
 
 
-def test_prompt_carries_injection_rule_and_real_evidence_ids(client, db_session, fake_llm):
+def test_every_agent_prompt_carries_the_injection_rule_and_real_evidence_ids(
+    client, db_session, fake_llm
+):
     request = _request_with_evidence(client, db_session)
-    fake_llm.responses = [valid_agent_payload()]
+    fake_llm.default = valid_agent_payload()
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
 
-    call = fake_llm.calls[0]
-    assert PROMPT_INJECTION_RULE in call["prompt"]
-    # the agent is shown evidence ids it is permitted to cite
-    assert "DOC-" in call["prompt"] and "-CHUNK-" in call["prompt"]
-    # and its taxonomy is stated, so it cannot roam into another remit
-    assert "PROBLEM_EVIDENCE" in call["system"]
-    # determinism is enforced at the provider, and the schema is passed through
-    assert call["schema"]["properties"]["status"]
+    assert len(fake_llm.calls) == len(EXPECTED_AGENTS)
+    for call in fake_llm.calls:
+        assert PROMPT_INJECTION_RULE in call["prompt"]
+        # each agent is shown evidence ids it is permitted to cite
+        assert "DOC-" in call["prompt"] and "-CHUNK-" in call["prompt"]
+
+
+def test_each_agent_gets_its_own_taxonomy_and_retrieval_query(client, db_session, fake_llm):
+    """The Phase 3 risk is seven prompts producing seven paraphrases. The
+    taxonomy is the mitigation, so it must actually differ per agent -- and be
+    enforced by the schema rather than only requested in prose."""
+    request = _request_with_evidence(client, db_session)
+    fake_llm.default = valid_agent_payload()
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    category_sets = []
+    for call in fake_llm.calls:
+        enum = call["schema"]["$defs"]["AgentFinding"]["properties"]["category"]["enum"]
+        category_sets.append(frozenset(enum))
+        # every category in the enum is also explained in that agent's prompt
+        for code in enum:
+            assert code in call["system"], f"{code} missing from its own system prompt"
+
+    assert len(set(category_sets)) == len(EXPECTED_AGENTS), "agents share a taxonomy"
+
+    # retrieval queries differ too, so agents are not reading identical evidence
+    queries = {spec.retrieval_query for spec in AGENT_REGISTRY.values()}
+    assert len(queries) == len(EXPECTED_AGENTS)
+
+
+def test_shared_categories_are_only_the_deliberately_shared_ones(client, db_session, fake_llm):
+    """INJECTION_ATTEMPT is intentionally on every agent -- any reviewer should
+    be able to report a document trying to instruct it. Nothing else should
+    overlap, or two reviewers are covering the same ground."""
+    from itertools import combinations
+
+    for a, b in combinations(AGENT_REGISTRY.values(), 2):
+        shared = set(a.category_codes) & set(b.category_codes)
+        assert shared <= {"INJECTION_ATTEMPT"}, (
+            f"{a.agent.value} and {b.agent.value} overlap on {shared - {'INJECTION_ATTEMPT'}}"
+        )
 
 
 def test_agent_failure_marks_run_failed_without_placeholder_score(
@@ -98,17 +142,14 @@ def test_agent_failure_marks_run_failed_without_placeholder_score(
 ):
     request = _request_with_evidence(client, db_session)
     # fails both attempts
-    fake_llm.responses = [
-        LLMInvalidOutputError("not json"),
-        LLMInvalidOutputError("not json"),
-    ]
+    fake_llm.default = LLMInvalidOutputError("not json")
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
 
     db_session.refresh(run)
+    assert all(r.state is AgentRunState.FAILED for r in run.agent_runs)
     agent_run = run.agent_runs[0]
-    assert agent_run.state is AgentRunState.FAILED
     assert agent_run.error_class == "LLMInvalidOutputError"
     # crucially: no agent_reviews row was invented for the failed agent
     assert db_session.query(AgentReview).filter(AgentReview.review_run_id == run.id).count() == 0
@@ -118,46 +159,53 @@ def test_agent_failure_marks_run_failed_without_placeholder_score(
 
 def test_ollama_unavailable_fails_the_agent_with_no_fallback(client, db_session, fake_llm):
     request = _request_with_evidence(client, db_session)
-    fake_llm.responses = [LLMUnavailableError("connection refused")]
+    fake_llm.default = LLMUnavailableError("connection refused")
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
 
     db_session.refresh(run)
-    assert run.agent_runs[0].state is AgentRunState.FAILED
+    assert all(r.state is AgentRunState.FAILED for r in run.agent_runs)
     assert run.agent_runs[0].error_class == "LLMUnavailableError"
     assert review_is_complete(run) is False
 
 
 def test_retry_succeeds_on_second_attempt(client, db_session, fake_llm):
     request = _request_with_evidence(client, db_session)
-    fake_llm.responses = [LLMInvalidOutputError("garbage"), valid_agent_payload()]
+    fake_llm.responses = [LLMInvalidOutputError("garbage")]
+    fake_llm.default = valid_agent_payload()
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
 
     db_session.refresh(run)
-    assert run.agent_runs[0].state is AgentRunState.COMPLETE
-    assert run.agent_runs[0].attempts == 2
+    # the first reviewer needed a retry; the rest succeeded first time
+    assert all(r.state is AgentRunState.COMPLETE for r in run.agent_runs)
+    assert max(r.attempts for r in run.agent_runs) == 2
 
 
-def test_non_engineering_agent_cannot_set_deadline_assessment(
-    client, db_session, fake_llm
-):
+def test_only_engineering_may_set_deadline_assessment(client, db_session, fake_llm):
+    """Every reviewer volunteers a deadline verdict; only ENGINEERING keeps it,
+    because the engine's B3/R5/R6 rules read that field."""
     request = _request_with_evidence(client, db_session)
-    # PRODUCT volunteers a deadline verdict it has no remit for
-    fake_llm.responses = [valid_agent_payload(deadline_assessment="INFEASIBLE")]
+    fake_llm.default = valid_agent_payload(deadline_assessment="INFEASIBLE")
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
 
-    review = db_session.query(AgentReview).filter(AgentReview.review_run_id == run.id).one()
-    assert review.deadline_assessment is None
+    reviews = {
+        r.agent: r
+        for r in db_session.query(AgentReview).filter(AgentReview.review_run_id == run.id).all()
+    }
+    assert reviews[AgentType.ENGINEERING].deadline_assessment is DeadlineAssessment.INFEASIBLE
+    for agent, review in reviews.items():
+        if agent is not AgentType.ENGINEERING:
+            assert review.deadline_assessment is None, f"{agent.value} kept a deadline verdict"
 
 
 def test_review_endpoint_returns_202_and_is_pollable(client, db_session, fake_llm):
     created = client.post("/api/requests", json=VALID_REQUEST_PAYLOAD).json()
-    fake_llm.responses = [valid_agent_payload()]
+    fake_llm.default = valid_agent_payload()
 
     resp = client.post(f"/api/requests/{created['id']}/review")
     assert resp.status_code == 202
@@ -177,7 +225,7 @@ def test_completed_run_persists_a_decision_and_audit_record(client, db_session, 
     request = _request_with_evidence(client, db_session)
     # score 72 with no blocker, no fail, one warning -> below the approve
     # average of 75, matches no REVISE rule -> the fallback
-    fake_llm.responses = [valid_agent_payload()]
+    fake_llm.default = valid_agent_payload()
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)
@@ -185,6 +233,8 @@ def test_completed_run_persists_a_decision_and_audit_record(client, db_session, 
     decision = db_session.query(Decision).filter(Decision.review_run_id == run.id).one()
     assert decision.status is DecisionStatus.REVISE
     assert decision.review_complete is True
+    # every reviewer PASSes at 72, so no rule fires and the average sits below
+    # the approve floor -- exactly the case the mandatory fallback exists for
     assert decision.rule_ids == ["F1_FALLBACK_REVISE"]
     assert decision.policy_version and decision.model_name == "fake-model"
 
@@ -219,7 +269,7 @@ def test_decision_leaves_the_request_in_reviewing_until_a_human_acts(
     client, db_session, fake_llm
 ):
     request = _request_with_evidence(client, db_session)
-    fake_llm.responses = [valid_agent_payload()]
+    fake_llm.default = valid_agent_payload()
 
     run = start_review(db_session, request)
     execute_review(db_session, run.id)

@@ -22,6 +22,12 @@ from app.core.enums import (
 
 
 class AgentFinding(BaseModel):
+    # `category` is constrained to the agent's own taxonomy by a JSON Schema
+    # enum at the model call, so a reviewer cannot raise a finding outside its
+    # remit. The title is deliberately free text: the category says which kind
+    # of problem this is, the title says what is actually wrong with *this*
+    # request.
+    category: str
     severity: FindingSeverity
     title: str
     description: str
@@ -56,12 +62,25 @@ class ValidatedFinding(AgentFinding):
     stripped_evidence_ids: list[str] = Field(default_factory=list)
 
 
-def ollama_format_schema() -> dict:
+def ollama_format_schema(categories: tuple[str, ...] = ()) -> dict:
     """JSON Schema for Ollama's `format` parameter.
 
     Derived from the Pydantic model so the two can never drift. The evidence
     validation fields are excluded -- the model is not asked to produce them.
+
+    When `categories` is given, the finding `category` field is narrowed to an
+    enum of exactly that agent's taxonomy. Constraining it at generation time is
+    stronger than asking in the prompt and dropping strays afterwards: the model
+    is structurally unable to raise a finding belonging to another reviewer.
     """
     schema = AgentReviewOutput.model_json_schema()
     schema.pop("title", None)
+
+    if categories:
+        finding = schema.get("$defs", {}).get("AgentFinding")
+        if finding is not None:
+            finding["properties"]["category"] = {
+                "type": "string",
+                "enum": list(categories),
+            }
     return schema

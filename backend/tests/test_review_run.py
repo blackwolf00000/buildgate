@@ -4,7 +4,11 @@ import io
 import pytest
 
 from app.agents import AGENT_REGISTRY, EXPECTED_AGENTS
-from app.agents.base import PROMPT_INJECTION_RULE
+from app.agents.base import (
+    CONFIDENCE_RULE,
+    PROMPT_INJECTION_RULE,
+    VERDICT_COHERENCE_RULE,
+)
 from app.core.enums import (
     AgentRunState,
     AgentType,
@@ -276,3 +280,73 @@ def test_decision_leaves_the_request_in_reviewing_until_a_human_acts(
 
     # the decision is a recommendation; only accept/override may move the request
     assert db_session.get(Request, request.id).status is RequestStatus.REVIEWING
+
+
+# --- verdict coherence -----------------------------------------------------
+
+def test_fail_with_no_findings_is_rejected_and_retried(client, db_session, fake_llm):
+    """Observed in a real run: reviewers returned FAIL with a summary full of
+    problems and an empty findings list, which gives the reader nothing and the
+    engine no severity. The schema rejects it, so the existing retry applies."""
+    request = _request_with_evidence(client, db_session)
+    incoherent = valid_agent_payload(status="FAIL", findings=[])
+    coherent = valid_agent_payload(
+        status="FAIL",
+        findings=[
+            {
+                "category": "PROBLEM_EVIDENCE",
+                "severity": "HIGH",
+                "title": "No data behind the stated ticket volume",
+                "description": "...",
+                "evidence_ids": [],
+            }
+        ],
+    )
+    fake_llm.responses = [incoherent]
+    fake_llm.default = coherent
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    db_session.refresh(run)
+    assert all(r.state is AgentRunState.COMPLETE for r in run.agent_runs)
+    # the first reviewer needed a second attempt to produce a usable verdict
+    assert max(r.attempts for r in run.agent_runs) == 2
+
+
+def test_block_with_no_findings_is_also_rejected(client, db_session, fake_llm):
+    request = _request_with_evidence(client, db_session)
+    fake_llm.default = valid_agent_payload(status="BLOCK", findings=[])
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    db_session.refresh(run)
+    # never produced a usable verdict, so every reviewer failed rather than
+    # persisting a blocking judgement nobody can check
+    assert all(r.state is AgentRunState.FAILED for r in run.agent_runs)
+
+
+def test_pass_and_warning_do_not_require_findings(client, db_session, fake_llm):
+    """A clean review is allowed to be empty. The constraint is only on adverse
+    verdicts, which must carry the finding that justifies them."""
+    request = _request_with_evidence(client, db_session)
+    fake_llm.default = valid_agent_payload(status="PASS", findings=[])
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    db_session.refresh(run)
+    assert all(r.state is AgentRunState.COMPLETE for r in run.agent_runs)
+
+
+def test_every_prompt_states_the_verdict_and_confidence_rules(client, db_session, fake_llm):
+    request = _request_with_evidence(client, db_session)
+    fake_llm.default = valid_agent_payload()
+
+    run = start_review(db_session, request)
+    execute_review(db_session, run.id)
+
+    for call in fake_llm.calls:
+        assert VERDICT_COHERENCE_RULE in call["system"]
+        assert CONFIDENCE_RULE in call["system"]

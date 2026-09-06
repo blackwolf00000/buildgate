@@ -10,7 +10,7 @@ than a silent corruption.
 `app.services.evidence` after validating the IDs the model emitted against the
 chunks actually retrieved for that call. See `EVIDENCE_MODEL_FIELDS`.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.enums import (
     AgentStatus,
@@ -48,6 +48,22 @@ class AgentReviewOutput(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     critical_information_missing: bool = False
     deadline_assessment: DeadlineAssessment | None = None
+
+    @model_validator(mode="after")
+    def adverse_verdicts_need_a_finding(self) -> "AgentReviewOutput":
+        """A FAIL or BLOCK with no findings is not a usable review.
+
+        Observed in practice: reviewers returned status FAIL with a summary
+        describing problems and an empty findings list, which gives a reader
+        nothing to act on and gives the decision engine no severity to weigh.
+        Raising here means `run_agent` retries with a different seed rather
+        than persisting an unusable verdict.
+        """
+        if self.status in (AgentStatus.FAIL, AgentStatus.BLOCK) and not self.findings:
+            raise ValueError(
+                f"status {self.status.value} requires at least one finding to justify it"
+            )
+        return self
 
 
 class ValidatedFinding(AgentFinding):

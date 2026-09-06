@@ -38,6 +38,13 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> list[st
         if end >= n:
             break
 
-        start = max(end - overlap, start + 1)
+        next_start = max(end - overlap, start + 1)
+        # Align the overlap to a word boundary too, so the next chunk does not
+        # begin mid-token and embed a meaningless fragment.
+        if next_start > 0 and not text[next_start - 1].isspace():
+            boundary = text.rfind(" ", start, next_start)
+            if boundary != -1 and boundary + 1 > start:
+                next_start = boundary + 1
+        start = next_start
 
     return chunks

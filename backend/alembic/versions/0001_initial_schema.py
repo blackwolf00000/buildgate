@@ -21,26 +21,26 @@ EMBEDDING_DIM = 768
 
 request_status = postgresql.ENUM(
     "DRAFT", "READY_FOR_REVIEW", "REVIEWING", "APPROVED", "REVISE", "BLOCKED", "OVERRIDDEN",
-    name="request_status",
+    name="request_status", create_type=False,
 )
 document_status = postgresql.ENUM(
     "UPLOADED", "PROCESSING", "READY", "PROCESSING_FAILED",
-    name="document_status",
+    name="document_status", create_type=False,
 )
 agent_type = postgresql.ENUM(
     "PRODUCT", "BA", "ARCHITECTURE", "ENGINEERING", "QA", "SECURITY", "USER_EVIDENCE",
-    name="agent_type",
+    name="agent_type", create_type=False,
 )
-agent_status = postgresql.ENUM("PASS", "WARNING", "FAIL", "BLOCK", name="agent_status")
+agent_status = postgresql.ENUM("PASS", "WARNING", "FAIL", "BLOCK", name="agent_status", create_type=False)
 deadline_assessment = postgresql.ENUM(
-    "FEASIBLE", "DOUBTFUL", "INFEASIBLE", "UNKNOWN", name="deadline_assessment"
+    "FEASIBLE", "DOUBTFUL", "INFEASIBLE", "UNKNOWN", name="deadline_assessment", create_type=False
 )
-decision_status = postgresql.ENUM("APPROVED", "REVISE", "BLOCKED", name="decision_status")
+decision_status = postgresql.ENUM("APPROVED", "REVISE", "BLOCKED", name="decision_status", create_type=False)
 audit_event_type = postgresql.ENUM(
     "REQUEST_CREATED", "DOCUMENT_UPLOADED", "DOCUMENT_INDEXED", "REVIEW_STARTED",
     "AGENT_REVIEW_COMPLETED", "DECISION_CREATED", "DECISION_ACCEPTED", "REVISION_REQUESTED",
     "DECISION_OVERRIDDEN",
-    name="audit_event_type",
+    name="audit_event_type", create_type=False,
 )
 
 

@@ -24,8 +24,10 @@ def sanitize_original_filename(filename: str) -> str:
     """Keep only a safe display name -- strips any path component and
     disallowed characters. Never used to build a filesystem path.
     """
-    name = os.path.basename(filename or "")
-    name = name.replace("\\", "_").replace("/", "_")
+    # Normalize Windows separators first: os.path.basename does not treat
+    # "\\" as a separator on POSIX, so a Windows path would survive it whole.
+    name = (filename or "").replace("\\", "/")
+    name = os.path.basename(name)
     name = re.sub(r"[^A-Za-z0-9._ -]", "_", name).strip()
     return name or "upload"
 

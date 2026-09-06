@@ -35,6 +35,10 @@ This starts three containers:
 | `api`   | http://localhost:8000 | FastAPI backend, runs migrations on boot|
 | `db`    | localhost:5432        | Postgres 16 + pgvector                  |
 
+If host port 5432 is already in use (another Postgres, for example), set
+`POSTGRES_HOST_PORT=5433` in `.env` — only the host mapping changes, the
+containers always reach the database as `db:5432`.
+
 The `api` container runs `alembic upgrade head` automatically on startup, so
 the schema is ready as soon as it's healthy.
 
@@ -42,6 +46,13 @@ the schema is ready as soon as it's healthy.
 
 ```bash
 make seed
+```
+
+`make` is not installed by default on Windows. Without it, run the underlying
+commands directly:
+
+```bash
+docker compose exec api python -m app.scripts.seed_demo
 ```
 
 Creates a demo request ("Self-service customer data export button") and
@@ -54,6 +65,12 @@ box with a query like `data classification`.
 
 ```bash
 make test
+```
+
+Or, without `make`:
+
+```bash
+docker compose exec -e DATABASE_URL=postgresql+psycopg://buildgate:buildgate@db:5432/buildgate_test api pytest -v
 ```
 
 Runs the backend pytest suite (request validation, upload validation,

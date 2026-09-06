@@ -10,7 +10,7 @@ An AI governance layer that challenges management requests before engineering
 capacity is committed, running entirely locally.
 
 - **Phase 1 — complete, verified, committed** (`73fcb8b`).
-- **Phase 2 — backend complete. Only the UI is outstanding.**
+- **Phase 2 — complete.** Backend and UI, verified end to end.
   Details below.
 
 ## Status as of 2026-09-06
@@ -63,12 +63,21 @@ Built and working:
   config-driven thresholds), plus a `FakeLLMProvider` in `conftest.py` so the
   suite never needs Ollama.
 
-### Phase 2 — NOT built yet
+### Phase 2 — UI
 
-1. **All Phase 2 UI.** No frontend work has been done at all: no trigger
-   button, no per-agent Pending/Running/Complete polling view, no decision
-   screen, no click-to-resolve evidence, no audit reconstruction view. Every
-   API endpoint they need already exists.
+- `components/ReviewPanel.tsx` — trigger + re-run, per-agent
+  Pending/Running/Complete rows with latency and attempts, agent review cards
+  (score, confidence, status, summary, findings, required actions, questions,
+  assumptions). Polls every 3s only while a run is in flight.
+- `components/EvidenceRef.tsx` — a finding's evidence reference resolves to its
+  source chunk text on click, and caches. Ungrounded findings carry an explicit
+  "evidence missing" badge naming how many fabricated ids were stripped.
+- `components/DecisionPanel.tsx` — status, policy and model, every rule that
+  fired with the deciding one marked, an incomplete-review warning, and the
+  accept / send-for-revision / override actions. The override form requires all
+  five fields; the server is the real control.
+- The audit trail now surfaces the explanatory parts of each payload (agent,
+  status, deciding rule, risk owner, approver, policy, model).
 
 ## The model question: resolved
 
@@ -162,10 +171,9 @@ docker compose exec -e DATABASE_URL=postgresql+psycopg://buildgate:buildgate@db:
 
 ## Next step on resume
 
-1. Get `buildgate-decision-engine-spec.md` reviewed. It is **implemented and
+1. Get `buildgate-decision-engine-spec.md` reviewed — it is shipped code now. It is **implemented and
    fully tested**, but the four numeric thresholds were derived rather than
    specified, and the stage-1/stage-2 ordering carries an open question. Both
    are cheap to change: thresholds are config, ordering is one block in
    `evaluate()`.
-2. Phase 2 UI — trigger, per-agent polling, decision screen, click-to-resolve
-   evidence, audit view. Every endpoint already exists.
+2. Phase 3 — the remaining six agents. Note the latency ceiling below.

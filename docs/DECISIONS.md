@@ -226,3 +226,33 @@ between accepting the recommendation and overriding it lives in the audit event
 `_finalize()` leaves the request in `REVIEWING`. Only accept, send-for-revision
 or override change its status. AI recommends; a named human decides -- so the
 request status reflects a human action, never a model output.
+
+## The review run is polled, the decision is not
+
+`ReviewPanel` polls `GET /api/reviews/{id}` every 3s while a run is PENDING or
+RUNNING, and stops the moment it is not. A single agent call takes minutes on
+CPU, so there is no synchronous path to fall back to and no spinner that could
+plausibly block.
+
+The decision is *not* polled. It is fetched once when the run completes, via a
+one-shot `onRunComplete` callback guarded by the run id, so a completed run
+cannot re-trigger a page reload on every poll tick.
+
+## Evidence references resolve on click, not on render
+
+A finding may cite several chunks and a run may hold many findings; resolving
+all of them eagerly would be a burst of requests for text nobody has asked to
+see. `EvidenceRef` fetches on first expand and caches the result for the life
+of the component.
+
+Until it is expanded, the reference shows a truncated id. Once resolved, the
+label becomes the filename and chunk index, because `security-policy.md #0` is
+what a reader can actually check, and the full uuid is available on hover.
+
+## A finding with no surviving evidence is labelled in the UI, not hidden
+
+`evidence_status: MISSING` renders as an explicit "evidence missing" badge, and
+when ids were stripped the badge says how many were fabricated (the ids
+themselves are on the tooltip). Hiding an ungrounded finding would be the wrong
+call in a governance tool: the fact that a reviewer asserted something it could
+not support is itself information the reader needs.

@@ -81,6 +81,94 @@ export interface RuntimeInfo {
   storage_dir: string;
 }
 
+export type AgentRunState = "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
+export type ReviewRunStatus = "PENDING" | "RUNNING" | "COMPLETE" | "FAILED";
+export type EvidenceStatus = "OK" | "MISSING";
+export type FindingSeverity = "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type AgentStatusValue = "PASS" | "WARNING" | "FAIL" | "BLOCK";
+export type DecisionStatusValue = "APPROVED" | "REVISE" | "BLOCKED";
+
+export interface Finding {
+  severity: FindingSeverity;
+  title: string;
+  description: string;
+  evidence_ids: string[];
+  stripped_evidence_ids: string[];
+  evidence_status: EvidenceStatus;
+}
+
+export interface AgentReview {
+  id: string;
+  agent: string;
+  score: number;
+  status: AgentStatusValue;
+  confidence: number;
+  summary: string;
+  findings: Finding[];
+  questions: string[];
+  required_actions: string[];
+  assumptions: string[];
+  critical_information_missing: boolean;
+  deadline_assessment: string | null;
+  created_at: string;
+}
+
+export interface AgentRun {
+  agent: string;
+  state: AgentRunState;
+  error_class: string | null;
+  latency_ms: number | null;
+  attempts: number;
+}
+
+export interface ReviewRun {
+  id: string;
+  request_id: string;
+  status: ReviewRunStatus;
+  model_name: string;
+  policy_version: string;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+  agent_runs: AgentRun[];
+  reviews: AgentReview[];
+}
+
+export interface Decision {
+  id: string;
+  review_run_id: string;
+  request_id: string;
+  status: DecisionStatusValue;
+  policy_version: string;
+  model_name: string;
+  review_complete: boolean;
+  rule_ids: string[];
+  accepted_at: string | null;
+  accepted_by: string | null;
+  overridden_at: string | null;
+  override_reason: string | null;
+  override_risk_owner: string | null;
+  override_accepted_risks: string[] | null;
+  override_approver_name: string | null;
+  created_at: string;
+}
+
+export interface ResolvedEvidence {
+  evidence_id: string;
+  document_id: string;
+  document_filename: string;
+  chunk_index: number;
+  content: string;
+}
+
+export interface OverrideInput {
+  actor: string;
+  override_reason: string;
+  override_risk_owner: string;
+  override_approver_name: string;
+  override_accepted_risks: string[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -138,4 +226,31 @@ export const api = {
     request<EvidenceChunk[]>(
       `/api/requests/${requestId}/evidence-search?q=${encodeURIComponent(query)}`
     ),
+  triggerReview: (requestId: string) =>
+    request<ReviewRun>(`/api/requests/${requestId}/review`, { method: "POST" }),
+  getReviewRun: (runId: string) => request<ReviewRun>(`/api/reviews/${runId}`),
+  listReviewRuns: (requestId: string) =>
+    request<ReviewRun[]>(`/api/requests/${requestId}/reviews`),
+  resolveEvidence: (requestId: string, evidenceId: string) =>
+    request<ResolvedEvidence>(
+      `/api/requests/${requestId}/evidence/${encodeURIComponent(evidenceId)}`
+    ),
+
+  listDecisions: (requestId: string) =>
+    request<Decision[]>(`/api/requests/${requestId}/decisions`),
+  acceptDecision: (decisionId: string, actor: string) =>
+    request<Decision>(`/api/decisions/${decisionId}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    }),
+  requestRevision: (decisionId: string, actor: string, note?: string) =>
+    request<Decision>(`/api/decisions/${decisionId}/revision`, {
+      method: "POST",
+      body: JSON.stringify({ actor, note: note || null }),
+    }),
+  overrideDecision: (decisionId: string, input: OverrideInput) =>
+    request<Decision>(`/api/decisions/${decisionId}/override`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 };

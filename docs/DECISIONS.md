@@ -151,3 +151,43 @@ and blanks `deadline_assessment` for every reviewer except `ENGINEERING`. The
 schema makes both fields available to the model, so without this a reviewer
 could mislabel itself or volunteer a deadline verdict outside its remit that
 the decision engine would then read.
+
+## num_ctx is pinned, not left to the model default
+
+Ollama sizes the KV cache and compute buffers from the context window, and a
+model's own default can be enormous — `qwen2.5` ships a 32k window. On a
+memory-constrained host that allocation fails *before generation starts*, and
+Ollama reports it as an opaque HTTP 500 (`failed to allocate buffer for kv
+cache`, `failed to allocate compute pp buffers`).
+
+This is genuinely counter-intuitive: on an 8 GB host, `qwen2.5:1.5b` (~0.99 GB
+of weights) failed to load while `llama3.2:1b` (~1.32 GB) succeeded, purely
+because of their differing default context windows. Model size on disk is not
+what determines whether it fits.
+
+`Settings.llm_num_ctx` (default 8192) is passed explicitly on every call. The
+agent prompt is roughly 3.3k tokens, so 8192 leaves comfortable headroom.
+Pinning it moved `qwen2.5:3b` from "will not load at all" to working in ~286s.
+
+## Model selection is measured, not assumed
+
+Measured on the seeded demo request, same prompt, same evidence, one PRODUCT
+call each:
+
+| Model | Latency | Findings | Grounded | Decision |
+|---|---|---|---|---|
+| `llama3.2:1b` | 295s | 9, all INFO | 0 | APPROVED |
+| `qwen2.5:1.5b` | 244s | 5, all MEDIUM | 5 | REVISE |
+| `qwen2.5:3b` | 286s | 3, all MEDIUM | 3 | REVISE |
+| `llama3` (8B) | — | will not load; ~5 GB of weights exceeds available RAM |
+
+Latency barely separates the three that run, so the choice is a quality one.
+`llama3.2:1b` is unusable for this task: it echoed the finding taxonomy back as
+nine INFO observations citing nothing, which the decision engine correctly but
+uselessly turned into APPROVED. `qwen2.5:3b` grounds every finding, sets
+`critical_information_missing` when the evidence genuinely does not answer the
+question, and is what `.env` selects.
+
+The committed default in `app/config.py` remains `llama3` and is *wrong for an
+8 GB host*; it is left alone because the deployment-appropriate model is a
+deployment decision, and `.env.example` documents the override.

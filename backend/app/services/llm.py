@@ -41,12 +41,21 @@ class OllamaProvider:
 
     name = "ollama"
 
-    def __init__(self, host: str, model: str, temperature: float, seed: int, timeout: float):
+    def __init__(
+        self,
+        host: str,
+        model: str,
+        temperature: float,
+        seed: int,
+        timeout: float,
+        num_ctx: int = 8192,
+    ):
         self.host = host.rstrip("/")
         self.model = model
         self.temperature = temperature
         self.seed = seed
         self.timeout = timeout
+        self.num_ctx = num_ctx
 
     def generate_json(self, system: str, prompt: str, schema: dict, attempt: int = 1) -> dict:
         """One constrained call. Raises rather than returning anything partial.
@@ -69,6 +78,8 @@ class OllamaProvider:
                 # Determinism: identical inputs must produce identical output.
                 "temperature": self.temperature,
                 "seed": self.seed + (attempt - 1),
+                # Explicit, not the model default -- see Settings.llm_num_ctx.
+                "num_ctx": self.num_ctx,
             },
         }
 
@@ -104,6 +115,7 @@ def get_llm_provider() -> LLMProvider:
             temperature=settings.llm_temperature,
             seed=settings.llm_seed,
             timeout=settings.llm_timeout_seconds,
+            num_ctx=settings.llm_num_ctx,
         )
     return _provider
 

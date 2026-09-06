@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_seed: int = 42
     llm_timeout_seconds: float = 300.0
+    # Ollama sizes the KV cache and compute buffers from the context window,
+    # and a model's default can be enormous (qwen2.5 ships 32k). On a memory-
+    # constrained host that allocation fails before generation starts, with an
+    # opaque HTTP 500. Pin it to something the prompt actually needs.
+    llm_num_ctx: int = 8192
     llm_max_attempts: int = 2  # one retry, then the agent is marked failed
 
     # --- Decision engine (see buildgate-decision-engine-spec.md) ---

@@ -44,7 +44,7 @@ class OllamaEmbeddingProvider:
                 "POST",
                 f"{self.host}/api/embeddings",
                 json={"model": self.model, "prompt": text},
-                timeout=60.0,
+                timeout=180.0,
             )
             resp.raise_for_status()
             vectors.append(resp.json()["embedding"])

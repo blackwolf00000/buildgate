@@ -1,3 +1,17 @@
+---
+title: BuildGate
+emoji: 🛡️
+colorFrom: slate
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+<!-- The YAML block above configures the Hugging Face Space and must stay at
+     the very top of this file. It is ignored everywhere else. `app_port` must
+     match the EXPOSE/PORT in the root Dockerfile. -->
+
 # BuildGate
 
 An AI governance layer that challenges management requests before engineering

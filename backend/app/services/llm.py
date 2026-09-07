@@ -49,6 +49,8 @@ class OllamaProvider:
         seed: int,
         timeout: float,
         num_ctx: int = 8192,
+        num_predict: int = 400,
+        keep_alive: str = "10m",
     ):
         self.host = host.rstrip("/")
         self.model = model
@@ -56,6 +58,8 @@ class OllamaProvider:
         self.seed = seed
         self.timeout = timeout
         self.num_ctx = num_ctx
+        self.num_predict = num_predict
+        self.keep_alive = keep_alive
 
     def generate_json(self, system: str, prompt: str, schema: dict, attempt: int = 1) -> dict:
         """One constrained call. Raises rather than returning anything partial.
@@ -76,13 +80,14 @@ class OllamaProvider:
             "format": schema,
             # Hold the model in memory between agents. A board of seven runs
             # back to back, and reloading costs ~9s each time.
-            "keep_alive": "10m",
+            "keep_alive": self.keep_alive,
             "options": {
                 # Determinism: identical inputs must produce identical output.
                 "temperature": self.temperature,
                 "seed": self.seed + (attempt - 1),
                 # Explicit, not the model default -- see Settings.llm_num_ctx.
                 "num_ctx": self.num_ctx,
+                "num_predict": self.num_predict,
             },
         }
 
@@ -105,6 +110,36 @@ class OllamaProvider:
             raise LLMInvalidOutputError("Ollama response was not valid JSON") from exc
 
 
+    def release(self) -> None:
+        """Ask Ollama to unload this model now.
+
+        `keep_alive` keeps the review model resident between agents, which is
+        what makes a seven-agent board affordable. But retrieval uses a
+        *different* model, and on a memory-constrained host the two cannot both
+        be loaded -- the embedding call then fails or times out. Releasing
+        before the next retrieval pass trades one reload for a run that works.
+        """
+        try:
+            outbound_request(
+                "POST",
+                f"{self.host}/api/generate",
+                json={
+                    "model": self.model,
+                    "keep_alive": 0,
+                    # Must match the options the model was loaded with. Ollama
+                    # keys a runner on its parameters, so an unload request that
+                    # omits num_ctx can start a *second* runner at the model's
+                    # own default window (32k for qwen2.5) purely to unload it,
+                    # allocating buffers far larger than a small host has and
+                    # wedging the server for subsequent calls.
+                    "options": {"num_ctx": self.num_ctx},
+                },
+                timeout=60.0,
+            )
+        except Exception:  # noqa: BLE001 - best effort; never fail a run on this
+            logger.debug("Could not release %s", self.model)
+
+
 _provider: LLMProvider | None = None
 
 
@@ -119,6 +154,8 @@ def get_llm_provider() -> LLMProvider:
             seed=settings.llm_seed,
             timeout=settings.llm_timeout_seconds,
             num_ctx=settings.llm_num_ctx,
+            num_predict=settings.llm_num_predict,
+            keep_alive=settings.llm_keep_alive,
         )
     return _provider
 

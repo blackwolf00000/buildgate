@@ -31,16 +31,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv curl ca-certificates gnupg \
+        python3 python3-pip python3-venv curl ca-certificates gnupg procps \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# CPU-only torch. sentence-transformers pulls torch, and the default wheel
-# bundles ~4 GB of CUDA libraries that can never run on a Spaces CPU box.
-COPY backend/requirements.txt /tmp/requirements.txt
+# requirements-hf.txt is requirements.txt without sentence-transformers, which
+# pulls torch and roughly 2 GB of wheels. That package is only the embedding
+# fallback for an unreachable Ollama, and Ollama runs inside this same
+# container, so it can never be reached. See that file for the reasoning.
+COPY backend/requirements-hf.txt /tmp/requirements.txt
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
-        --extra-index-url https://download.pytorch.org/whl/cpu \
         -r /tmp/requirements.txt
 
 RUN curl -fsSL https://ollama.com/install.sh | sh
@@ -57,7 +58,9 @@ RUN mkdir -p $OLLAMA_MODELS \
     && pkill -f "ollama serve" || true
 
 COPY backend/ /app/backend/
-COPY data/ /app/data/
+# app/scripts/seed_demo.py reads /data/demo as an absolute path, and
+# docker-compose.yml mounts it there too. Keep the same location.
+COPY data/ /data/
 COPY --from=web /web/.next/standalone /app/web/
 COPY --from=web /web/.next/static /app/web/.next/static
 COPY --from=web /web/public /app/web/public

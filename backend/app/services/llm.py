@@ -123,8 +123,18 @@ class OllamaProvider:
             outbound_request(
                 "POST",
                 f"{self.host}/api/generate",
-                json={"model": self.model, "keep_alive": 0},
-                timeout=30.0,
+                json={
+                    "model": self.model,
+                    "keep_alive": 0,
+                    # Must match the options the model was loaded with. Ollama
+                    # keys a runner on its parameters, so an unload request that
+                    # omits num_ctx can start a *second* runner at the model's
+                    # own default window (32k for qwen2.5) purely to unload it,
+                    # allocating buffers far larger than a small host has and
+                    # wedging the server for subsequent calls.
+                    "options": {"num_ctx": self.num_ctx},
+                },
+                timeout=60.0,
             )
         except Exception:  # noqa: BLE001 - best effort; never fail a run on this
             logger.debug("Could not release %s", self.model)

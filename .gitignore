@@ -9,3 +9,7 @@ node_modules/
 # Uploaded documents persist in a named Docker volume, not on the host,
 # but guard against accidental host-path storage during local debugging.
 /data/uploads/
+
+# Static export output for the Hugging Face Static Space; the built artefact is
+# pushed to the Space repo, not tracked here.
+frontend/out/

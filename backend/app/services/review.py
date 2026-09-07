@@ -124,6 +124,12 @@ def execute_review(db: Session, review_run_id) -> None:
     # is deliberately outside the per-agent try/except.
     ordered = sorted(run.agent_runs, key=lambda r: r.agent.value)
     specs = [AGENT_REGISTRY[r.agent] for r in ordered if r.agent in AGENT_REGISTRY]
+    # Retrieval uses the embedding model; a previous run may still be holding
+    # the review model resident via keep_alive, and on a constrained host both
+    # will not fit. Release it before embedding.
+    release = getattr(provider, "release", None)
+    if callable(release):
+        release()
     try:
         evidence_by_agent = collect_evidence_for_all(db, request.id, specs)
     except Exception as exc:  # noqa: BLE001 - surfaced on the run, not swallowed

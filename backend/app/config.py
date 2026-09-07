@@ -22,6 +22,11 @@ class Settings(BaseSettings):
 
     retrieval_small_corpus_threshold: int = 60
     retrieval_top_k: int = 8
+    # Hard cap on chunks handed to any single agent, applied even below the
+    # small-corpus threshold. Prompt prefill dominates CPU review latency
+    # (3323 tokens took ~35s), and evidence is most of the prompt. Raise this
+    # for fidelity, lower it for speed. See docs/DECISIONS.md.
+    retrieval_max_chunks_per_agent: int = 4
 
     chunk_size: int = 1000
     chunk_overlap: int = 150
@@ -39,6 +44,13 @@ class Settings(BaseSettings):
     # constrained host that allocation fails before generation starts, with an
     # opaque HTTP 500. Pin it to something the prompt actually needs.
     llm_num_ctx: int = 8192
+    # Caps generation. Observed output is 80-450 tokens; the cap stops a
+    # runaway response costing minutes on CPU.
+    llm_num_predict: int = 400
+    # How long Ollama holds the review model in memory. Loading it costs ~190s
+    # under memory pressure and ~2s when it stays resident, so a board of seven
+    # agents must not let it unload between them.
+    llm_keep_alive: str = "10m"
     llm_max_attempts: int = 2  # one retry, then the agent is marked failed
 
     # --- Decision engine (see buildgate-decision-engine-spec.md) ---

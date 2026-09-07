@@ -36,7 +36,13 @@ def retrieve(db: Session, request_id, query_embedding: list[float], top_k: int |
             for chunk, doc in all_chunks
         ]
         scored.sort(key=lambda item: item[2], reverse=True)
-        return scored
+        # Still ranked over the whole corpus rather than by vector search, so
+        # the small-corpus guarantee holds -- nothing is excluded before
+        # scoring. The cap then keeps the prompt small enough to review on CPU
+        # in reasonable time. Set retrieval_max_chunks_per_agent to 0 to
+        # restore the original "pass everything" behaviour.
+        cap = settings.retrieval_max_chunks_per_agent
+        return scored[:cap] if cap else scored
 
     rows = (
         db.query(DocumentChunk, Document)

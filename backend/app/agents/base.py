@@ -199,6 +199,32 @@ def collect_evidence_for_all(
     }
 
 
+@dataclass(frozen=True)
+class AgentCall:
+    """Everything one agent needs, resolved off the DB.
+
+    Built on the main thread so the concurrent generation phase touches no
+    ORM objects and no database session.
+    """
+
+    spec: "AgentSpec"
+    system: str
+    prompt: str
+    schema: dict
+    allowed_ids: set[str]
+
+
+def prepare_agent_call(request: Request, spec: AgentSpec, evidence: Evidence) -> AgentCall:
+    chunks, allowed_ids = evidence
+    return AgentCall(
+        spec=spec,
+        system=spec.system_prompt(),
+        prompt=build_user_prompt(request, chunks),
+        schema=ollama_format_schema(spec.category_codes),
+        allowed_ids=allowed_ids,
+    )
+
+
 @dataclass
 class AgentRunResult:
     output: AgentReviewOutput
@@ -206,6 +232,60 @@ class AgentRunResult:
     evidence_ids_available: set[str]
     latency_ms: int
     attempts: int
+
+
+def execute_agent_call(
+    call: AgentCall, provider: LLMProvider, max_attempts: int = 2
+) -> AgentRunResult:
+    """Run one reviewer from a prepared call. Thread-safe: no DB, no ORM.
+
+    Raises if it never produced schema-valid output. Never substitutes a
+    placeholder score -- a failed agent is a failed agent.
+    """
+    spec = call.spec
+    started = time.monotonic()
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            raw = provider.generate_json(
+                call.system, call.prompt, call.schema, attempt=attempt
+            )
+            # The model does not get to choose which agent it is speaking as.
+            raw["agent"] = spec.agent.value
+            output = AgentReviewOutput.model_validate(raw)
+        except (LLMInvalidOutputError, ValueError) as exc:
+            last_error = exc
+            logger.warning(
+                "Agent %s attempt %d/%d produced unusable output: %s",
+                spec.agent.value, attempt, max_attempts, type(exc).__name__,
+            )
+            continue
+        except LLMUnavailableError:
+            # No fallback path by design -- surface it immediately.
+            raise
+
+        # deadline_assessment is meaningful only for ENGINEERING.
+        if spec.agent is not AgentType.ENGINEERING:
+            output.deadline_assessment = None
+
+        findings = validate_findings(output.findings, call.allowed_ids)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            "agent=%s status=%s score=%d latency_ms=%d attempts=%d",
+            spec.agent.value, output.status.value, output.score, latency_ms, attempt,
+        )
+        return AgentRunResult(
+            output=output,
+            findings=findings,
+            evidence_ids_available=call.allowed_ids,
+            latency_ms=latency_ms,
+            attempts=attempt,
+        )
+
+    raise LLMInvalidOutputError(
+        f"Agent {spec.agent.value} produced no schema-valid output in {max_attempts} attempts"
+    ) from last_error
 
 
 def run_agent(
@@ -216,70 +296,8 @@ def run_agent(
     max_attempts: int = 2,
     evidence: Evidence | None = None,
 ) -> AgentRunResult:
-    """Run one reviewer. Raises if it never produced schema-valid output.
-
-    Never substitutes a placeholder score -- a failed agent is a failed agent,
-    and the decision engine treats the review as incomplete.
-
-    `evidence` may be pre-collected by the caller (see
-    `collect_evidence_for_all`); when omitted this agent retrieves its own.
-    """
-    chunks, allowed_ids = evidence if evidence is not None else collect_evidence(
-        db, request.id, spec
+    """Convenience wrapper: resolve evidence if needed, then run the call."""
+    resolved = evidence if evidence is not None else collect_evidence(db, request.id, spec)
+    return execute_agent_call(
+        prepare_agent_call(request, spec, resolved), provider, max_attempts
     )
-    system = spec.system_prompt()
-    prompt = build_user_prompt(request, chunks)
-    schema = ollama_format_schema(spec.category_codes)
-
-    started = time.monotonic()
-    last_error: Exception | None = None
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            raw = provider.generate_json(system, prompt, schema, attempt=attempt)
-            # The model does not get to choose which agent it is speaking as.
-            raw["agent"] = spec.agent.value
-            output = AgentReviewOutput.model_validate(raw)
-        except (LLMInvalidOutputError, ValueError) as exc:
-            last_error = exc
-            logger.warning(
-                "Agent %s attempt %d/%d produced unusable output: %s",
-                spec.agent.value,
-                attempt,
-                max_attempts,
-                type(exc).__name__,
-            )
-            continue
-        except LLMUnavailableError:
-            # No fallback path by design -- surface it immediately.
-            raise
-
-        # deadline_assessment is meaningful only for ENGINEERING; drop whatever
-        # any other reviewer volunteered so the engine cannot read it.
-        if spec.agent is not AgentType.ENGINEERING:
-            output.deadline_assessment = None
-
-        findings = validate_findings(output.findings, allowed_ids)
-        latency_ms = int((time.monotonic() - started) * 1000)
-
-        logger.info(
-            "agent=%s request_id=%s status=%s score=%d latency_ms=%d attempts=%d",
-            spec.agent.value,
-            request.id,
-            output.status.value,
-            output.score,
-            latency_ms,
-            attempt,
-        )
-
-        return AgentRunResult(
-            output=output,
-            findings=findings,
-            evidence_ids_available=allowed_ids,
-            latency_ms=latency_ms,
-            attempts=attempt,
-        )
-
-    raise LLMInvalidOutputError(
-        f"Agent {spec.agent.value} produced no schema-valid output in {max_attempts} attempts"
-    ) from last_error

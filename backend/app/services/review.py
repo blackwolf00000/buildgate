@@ -10,12 +10,17 @@ placeholder score, no default status -- because the decision engine's
 completeness stage depends on being able to tell that an agent did not return.
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.agents import AGENT_REGISTRY, EXPECTED_AGENTS
-from app.agents.base import collect_evidence_for_all, run_agent
+from app.agents.base import (
+    collect_evidence_for_all,
+    execute_agent_call,
+    prepare_agent_call,
+)
 from app.config import get_settings
 from app.core.enums import (
     AgentRunState,
@@ -144,41 +149,48 @@ def execute_review(db: Session, review_run_id) -> None:
         db.commit()
         return
 
+    # Prepare every call on this thread: prompts are built from ORM objects, and
+    # the concurrent phase must not touch the session.
+    calls = {}
     for agent_run in ordered:
         spec = AGENT_REGISTRY.get(agent_run.agent)
         if spec is None:
             agent_run.state = AgentRunState.FAILED
             agent_run.error_class = "UnknownAgent"
-            db.commit()
             continue
+        evidence = evidence_by_agent.get(agent_run.agent)
+        if evidence is None:
+            agent_run.state = AgentRunState.FAILED
+            agent_run.error_class = "NoEvidence"
+            continue
+        calls[agent_run.agent] = prepare_agent_call(request, spec, evidence)
+    db.commit()
 
-        agent_run.state = AgentRunState.RUNNING
-        db.commit()
+    runnable = [r for r in ordered if r.agent in calls]
+    by_agent = {r.agent: r for r in runnable}
+    workers = max(1, min(settings.review_concurrency, len(runnable)))
 
+    def _call(agent):
         try:
-            result = run_agent(
-                db,
-                request,
-                spec,
-                provider,
-                max_attempts=settings.llm_max_attempts,
-                evidence=evidence_by_agent.get(agent_run.agent),
-            )
+            return agent, execute_agent_call(
+                calls[agent], provider, max_attempts=settings.llm_max_attempts
+            ), None
         except Exception as exc:  # noqa: BLE001 - a failed agent must not kill the run
-            # Log the error class only. Never the prompt, the documents, or the
-            # model output.
+            return agent, None, exc
+
+    def _persist(agent, result, exc) -> None:
+        """Write one agent's outcome. Always on this thread, never in a worker."""
+        agent_run = by_agent[agent]
+        if exc is not None:
+            # Log the error class only. Never the prompt, documents, or output.
             logger.warning(
                 "agent=%s request_id=%s failed error_class=%s",
-                agent_run.agent.value,
-                request.id,
-                type(exc).__name__,
+                agent.value, request.id, type(exc).__name__,
             )
-            db.rollback()
-            agent_run = db.get(AgentRun, agent_run.id)
             agent_run.state = AgentRunState.FAILED
             agent_run.error_class = type(exc).__name__
             db.commit()
-            continue
+            return
 
         output = result.output
         db.add(
@@ -221,6 +233,22 @@ def execute_review(db: Session, review_run_id) -> None:
                 ),
             },
         )
+
+    # Each outcome is persisted as soon as it arrives, so the polling UI shows
+    # real progress rather than nothing until the whole board finishes.
+    if workers > 1:
+        for agent_run in runnable:
+            agent_run.state = AgentRunState.RUNNING
+        db.commit()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_call, r.agent) for r in runnable]
+            for future in as_completed(futures):
+                _persist(*future.result())
+    else:
+        for agent_run in runnable:
+            agent_run.state = AgentRunState.RUNNING
+            db.commit()
+            _persist(*_call(agent_run.agent))
 
     _finalize(db, run, request)
 

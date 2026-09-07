@@ -43,7 +43,12 @@ class Settings(BaseSettings):
     # and a model's default can be enormous (qwen2.5 ships 32k). On a memory-
     # constrained host that allocation fails before generation starts, with an
     # opaque HTTP 500. Pin it to something the prompt actually needs.
-    llm_num_ctx: int = 8192
+    # Sized to the actual workload, not the model's maximum: prompts measure
+    # ~2000 tokens and llm_num_predict caps output at 400. Ollama allocates the
+    # KV cache from this number, so an oversized window wastes the very memory
+    # whose absence makes CPU inference slow -- and multiplies per concurrent
+    # slot.
+    llm_num_ctx: int = 3072
     # Caps generation. Observed output is 80-450 tokens; the cap stops a
     # runaway response costing minutes on CPU.
     llm_num_predict: int = 400
@@ -52,6 +57,14 @@ class Settings(BaseSettings):
     # agents must not let it unload between them.
     llm_keep_alive: str = "10m"
     llm_max_attempts: int = 2  # one retry, then the agent is marked failed
+    # Agents are independent, so the board *can* run them concurrently. Measured
+    # on this host it is markedly worse: at concurrency 3 no agent had finished
+    # after 613s, against ~75-107s each run sequentially. CPU inference here is
+    # bound by memory bandwidth, not cores, so parallel requests contend for the
+    # same starved memory and each KV slot costs more of it. Default 1. Raise it
+    # on a host with real headroom or a GPU, where it should scale well --
+    # Ollama's OLLAMA_NUM_PARALLEL must be at least this to actually overlap.
+    review_concurrency: int = 1
 
     # --- Decision engine (see buildgate-decision-engine-spec.md) ---
     # Thresholds live here, never inline in the engine, so policy can be tuned

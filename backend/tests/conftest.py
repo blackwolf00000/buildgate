@@ -114,6 +114,9 @@ class FakeLLMProvider:
     model = "fake-model"
 
     def __init__(self, responses=None, default=None):
+        import threading
+
+        self._lock = threading.Lock()
         # `responses` is consumed in order; `default` is what every remaining
         # call returns once it is exhausted. With a multi-agent board most tests
         # want one scripted outcome applied to every reviewer, which is what
@@ -123,8 +126,12 @@ class FakeLLMProvider:
         self.calls = []
 
     def generate_json(self, system, prompt, schema, attempt=1):
-        self.calls.append({"system": system, "prompt": prompt, "schema": schema, "attempt": attempt})
-        nxt = self.responses.pop(0) if self.responses else self.default
+        # Agents run concurrently, so scripted responses need a lock.
+        with self._lock:
+            self.calls.append(
+                {"system": system, "prompt": prompt, "schema": schema, "attempt": attempt}
+            )
+            nxt = self.responses.pop(0) if self.responses else self.default
         if nxt is None:
             raise AssertionError("FakeLLMProvider ran out of scripted responses")
         if isinstance(nxt, Exception):

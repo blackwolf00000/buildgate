@@ -1,0 +1,471 @@
+{
+  "request": {
+    "id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+    "title": "Self-service customer data export button",
+    "description": "Add an 'Export My Data' button to the customer portal so enterprise admins can generate their own account/usage/billing export instead of emailing support.",
+    "business_reason": "Support handles ~40 manual export requests per month at a 3-day turnaround; this is intended to cut that to self-service in minutes.",
+    "requested_deadline": "2026-09-27",
+    "deadline_is_fixed": true,
+    "requester": "Dana Whitfield",
+    "department": "Customer Success",
+    "expected_outcome": "80% reduction in manual export support tickets.",
+    "target_users": "Enterprise portal admins (~1,200 accounts).",
+    "priority": "High",
+    "notes": "Leadership wants this announced at the Q3 customer webinar.",
+    "status": "REVIEWING",
+    "created_at": "2026-09-06T08:20:57.249802+00:00",
+    "updated_at": "2026-09-06T08:41:12.241860+00:00"
+  },
+  "documents": [
+    {
+      "id": "c7ecf1bd-5782-4175-b415-0743664de6b0",
+      "request_id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+      "original_filename": "architecture-notes.md",
+      "extension": ".md",
+      "size_bytes": 1285,
+      "status": "READY",
+      "failure_reason": null,
+      "created_at": "2026-09-06T08:20:57.283200+00:00",
+      "updated_at": "2026-09-06T08:20:57.659636+00:00"
+    },
+    {
+      "id": "0a688103-ab5a-4ed8-a7af-224399e205a4",
+      "request_id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+      "original_filename": "engineering-constraints.md",
+      "extension": ".md",
+      "size_bytes": 1276,
+      "status": "READY",
+      "failure_reason": null,
+      "created_at": "2026-09-06T08:20:59.185474+00:00",
+      "updated_at": "2026-09-06T08:20:59.331449+00:00"
+    },
+    {
+      "id": "89f0f3f6-64d1-4d39-9e06-fdd902e66496",
+      "request_id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+      "original_filename": "product-brief.md",
+      "extension": ".md",
+      "size_bytes": 1386,
+      "status": "READY",
+      "failure_reason": null,
+      "created_at": "2026-09-06T08:20:59.778014+00:00",
+      "updated_at": "2026-09-06T08:20:59.814571+00:00"
+    },
+    {
+      "id": "037aaa79-aded-4b28-af81-f258cad8f768",
+      "request_id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+      "original_filename": "qa-history.md",
+      "extension": ".md",
+      "size_bytes": 1173,
+      "status": "READY",
+      "failure_reason": null,
+      "created_at": "2026-09-06T08:21:00.213999+00:00",
+      "updated_at": "2026-09-06T08:21:00.250573+00:00"
+    },
+    {
+      "id": "571a1e71-e4fa-4f07-91b6-36b9b3d6d39a",
+      "request_id": "e03630a0-d163-4251-bdda-0dc8f16d289b",
+      "original_filename": "security-policy.md",
+      "extension": ".md",
+      "size_bytes": 1304,
+      "status": "READY",
+      "failure_reason": null,
+      "created_at": "2026-09-06T08:21:00.635953+00:00",
+      "updated_at": "2026-09-06T08:21:00.700891+00:00"
+    }
+  ],
+  "chunks": [
+    {
+      "evidence_id": "DOC-0a688103-ab5a-4ed8-a7af-224399e205a4-CHUNK-0",
+      "document_id": "0a688103-ab5a-4ed8-a7af-224399e205a4",
+      "document_filename": "engineering-constraints.md",
+      "chunk_index": 0,
+      "content": "# Engineering Constraints \u2014 Q3 Platform Notes\n\n## Current export pipeline\n\nThe existing manual export script reads directly from the primary\ntransactional database during business hours, which has caused two\nbrief read-latency incidents in the past quarter when run against large\naccounts. Any self-service version of this must read from the reporting\nreplica, not the primary, or it will need a load test and a DBA sign-off\nfirst.\n\n## File delivery\n\nWe do not currently have infrastructure for generating pre-signed, expiring\ndownload links. The nearest existing capability is the internal file-storage\nservice used for support-ticket attachments, which was not designed for\ncustomer-facing delivery and has no link-revocation feature today.\n\n## Team capacity\n\nThe platform team that owns the reporting replica and the file-storage\nservice is currently staffed at 60% due to two open backend roles. Any work\ntouching either system should assume reduced review bandwidth through the\nend of the"
+    },
+    {
+      "evidence_id": "DOC-037aaa79-aded-4b28-af81-f258cad8f768-CHUNK-0",
+      "document_id": "037aaa79-aded-4b28-af81-f258cad8f768",
+      "document_filename": "qa-history.md",
+      "chunk_index": 0,
+      "content": "# QA History \u2014 Related Features\n\n## Download My Invoices (shipped last year)\n\nThis is the closest prior feature to the proposed data-export button. Notable\nissues found during QA:\n\n- Initial implementation generated the file on the primary database and was\n rejected in review before reaching QA, per the same primary-vs-replica\n concern raised in the engineering notes.\n- QA found that large accounts (500+ invoices) caused the synchronous\n generation request to time out at the API gateway's 30-second limit. The\n shipped version was reworked to be asynchronous with an email notification.\n- A field-classification bug let one internal billing-adjustment note leak\n into a small number of generated invoice PDFs before it was caught in QA;\n this is the specific incident that led to the Data Governance sign-off step\n now required in the security policy.\n\n## Regression risk\n\nAny new export feature that reuses the same \"generate file, deliver a link\"\nshape should explicitly test the 30-second"
+    },
+    {
+      "evidence_id": "DOC-89f0f3f6-64d1-4d39-9e06-fdd902e66496-CHUNK-0",
+      "document_id": "89f0f3f6-64d1-4d39-9e06-fdd902e66496",
+      "document_filename": "product-brief.md",
+      "chunk_index": 0,
+      "content": "# Product Brief \u2014 Customer Self-Service Data Export\n\n## Summary\n\nEnterprise customers currently request their account data exports by emailing\nsupport, who manually run a script and email back a CSV. Support handles\nroughly 40 of these requests per month. The ask is a self-service \"Export My\nData\" button in the customer portal that generates and emails the export\nwithout a human in the loop.\n\n## Target users\n\nPortal admins at enterprise customer accounts (the account owner role and\nabove). Approximately 1,200 accounts currently qualify.\n\n## Expected outcome\n\nReduce support ticket volume for data-export requests by at least 80%, and\ncut the turnaround time from an average of 3 business days to under 10\nminutes.\n\n## Known constraints\n\n- The export must include the same fields as the current manual CSV: account\n metadata, usage logs for the trailing 12 months, and billing history.\n- Exports must be delivered as a downloadable link, not a raw email\n attachment, because some exports exceed"
+    },
+    {
+      "evidence_id": "DOC-571a1e71-e4fa-4f07-91b6-36b9b3d6d39a-CHUNK-0",
+      "document_id": "571a1e71-e4fa-4f07-91b6-36b9b3d6d39a",
+      "document_filename": "security-policy.md",
+      "chunk_index": 0,
+      "content": "# Security Policy Excerpt \u2014 Customer Data Handling\n\n## Data classification\n\nAll customer-account fields are tagged `public-export`, `customer-visible`,\nor `internal-only`. Fields tagged `internal-only` (examples: internal risk\nscore, support-agent notes, fraud-review flags) must never be included in any\nexport, report, or API response that a customer or their delegate can access,\ndirectly or indirectly.\n\n## Self-service export features\n\n> Any self-service feature that lets a customer generate their own data\n> export must pass a field-level classification review before launch, and\n> that review must be signed off by the Data Governance team, not by\n> Engineering alone. This applies regardless of how the export is triggered\n> (manual button, API, or scheduled job).\n\n## Bulk data movement\n\nAny feature that produces a downloadable file containing more than 90 days of\nhistorical customer data must run through the Bulk Export approval process,\nwhich includes a rate-limit review and a"
+    },
+    {
+      "evidence_id": "DOC-c7ecf1bd-5782-4175-b415-0743664de6b0-CHUNK-0",
+      "document_id": "c7ecf1bd-5782-4175-b415-0743664de6b0",
+      "document_filename": "architecture-notes.md",
+      "chunk_index": 0,
+      "content": "# Architecture Notes \u2014 Customer Portal\n\n## Current portal stack\n\nThe customer portal is a server-rendered app backed by the primary\ntransactional database, fronted by a shared API gateway used by both the\nportal and internal admin tools. There is no existing background-job queue\nwired into the portal service today; long-running work is currently handled\nby a separate internal ops service.\n\n## Data access boundaries\n\nPortal backend services have read access to the primary database but not to\nthe reporting replica; only the internal analytics service currently has a\nreplica connection. Wiring a new consumer to the replica requires a network\nACL change and is not a same-sprint change.\n\n## Prior incidents\n\nOne of the two read-latency incidents mentioned in the engineering notes was\ntraced to an unindexed query against the usage-logs table for an account with\nseveral years of history. Any new feature reading that table at export scale\nshould assume it needs a new index or a pre-aggregation"
+    },
+    {
+      "evidence_id": "DOC-571a1e71-e4fa-4f07-91b6-36b9b3d6d39a-CHUNK-1",
+      "document_id": "571a1e71-e4fa-4f07-91b6-36b9b3d6d39a",
+      "document_filename": "security-policy.md",
+      "chunk_index": 1,
+      "content": "file containing more than 90 days of\nhistorical customer data must run through the Bulk Export approval process,\nwhich includes a rate-limit review and a takedown/revocation mechanism for\nalready-issued download links.\n\n## Authentication for sensitive actions\n\nActions that generate or expose account-level data extracts require\nstep-up authentication (a fresh session, not a long-lived cookie) even for\nalready-authenticated users."
+    },
+    {
+      "evidence_id": "DOC-c7ecf1bd-5782-4175-b415-0743664de6b0-CHUNK-1",
+      "document_id": "c7ecf1bd-5782-4175-b415-0743664de6b0",
+      "document_filename": "architecture-notes.md",
+      "chunk_index": 1,
+      "content": "for an account with\nseveral years of history. Any new feature reading that table at export scale\nshould assume it needs a new index or a pre-aggregation step.\n\n## Open architectural question\n\nIt has not yet been decided whether export generation should be synchronous\n(held open request) or asynchronous (job queue plus notification). No job\nqueue currently exists in the portal service's dependency graph."
+    },
+    {
+      "evidence_id": "DOC-0a688103-ab5a-4ed8-a7af-224399e205a4-CHUNK-1",
+      "document_id": "0a688103-ab5a-4ed8-a7af-224399e205a4",
+      "document_filename": "engineering-constraints.md",
+      "chunk_index": 1,
+      "content": "is currently staffed at 60% due to two open backend roles. Any work\ntouching either system should assume reduced review bandwidth through the\nend of the quarter.\n\n## Prior related work\n\nA similar \"download my invoices\" feature shipped last year took roughly\n6 engineer-weeks end to end, including a security review cycle, and that\nfeature only touched billing data (not usage logs or account metadata)."
+    },
+    {
+      "evidence_id": "DOC-89f0f3f6-64d1-4d39-9e06-fdd902e66496-CHUNK-1",
+      "document_id": "89f0f3f6-64d1-4d39-9e06-fdd902e66496",
+      "document_filename": "product-brief.md",
+      "chunk_index": 1,
+      "content": "the trailing 12 months, and billing history.\n- Exports must be delivered as a downloadable link, not a raw email\n attachment, because some exports exceed 25MB.\n- The feature must respect existing per-field data classification tags; some\n fields are marked \"internal-only\" and must never appear in a customer-facing\n export.\n\n## Out of scope for this request\n\nScheduled/recurring exports, exports for sub-accounts, and any export format\nother than CSV are explicitly out of scope for this iteration."
+    },
+    {
+      "evidence_id": "DOC-037aaa79-aded-4b28-af81-f258cad8f768-CHUNK-1",
+      "document_id": "037aaa79-aded-4b28-af81-f258cad8f768",
+      "document_filename": "qa-history.md",
+      "chunk_index": 1,
+      "content": "security policy.\n\n## Regression risk\n\nAny new export feature that reuses the same \"generate file, deliver a link\"\nshape should explicitly test the 30-second gateway timeout path and the\nfield-classification boundary, since both have caused real production issues\nin the one prior comparable feature."
+    }
+  ],
+  "model_name": "qwen2.5:3b",
+  "policy_version": "2026.09.1",
+  "reviews": [
+    {
+      "id": "25289404-0416-4346-a937-baaba732df4b",
+      "agent": "SECURITY",
+      "score": 30,
+      "status": "FAIL",
+      "confidence": 0.95,
+      "summary": "MISSING_APPROVAL: Data Governance team sign-off required for self-service export feature.",
+      "findings": [
+        {
+          "title": "Data Governance team sign-off required for self-service export button",
+          "category": "MISSING_APPROVAL",
+          "severity": "CRITICAL",
+          "description": "The request to add a 'Export My Data' button to the customer portal is missing mandatory approval from the Data Governance team, as per security policy.",
+          "evidence_ids": [
+            "DOC-571a1e71-e4fa-4f07-91b6-36b9b3d6d39a-CHUNK-0",
+            "DOC-89f0f3f6-64d1-4d39-9e06-fdd902e66496-CHUNK-1"
+          ],
+          "evidence_status": "OK",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:38:25.901190+00:00"
+    },
+    {
+      "id": "76ac8a22-a9b6-47f5-9b26-e4d13fe8e880",
+      "agent": "ARCHITECTURE",
+      "score": 25,
+      "status": "WARNING",
+      "confidence": 1.0,
+      "summary": "The proposed self-service customer data export button would couple together parts of the system that are currently independent and could introduce architectural issues.",
+      "findings": [
+        {
+          "title": "Self-service export feature couples portal with background jobs",
+          "category": "COUPLING_RISK",
+          "severity": "MEDIUM",
+          "description": "The proposed self-service customer data export button would require integration with a background job queue, which is not currently wired into the portal service. This could introduce coupling risks and make future changes more complex.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:29:13.555588+00:00"
+    },
+    {
+      "id": "91059608-3ccf-45c5-95ea-9677b80aec4e",
+      "agent": "BA",
+      "score": 29,
+      "status": "FAIL",
+      "confidence": 0.95,
+      "summary": "The request is underspecified and lacks critical details.",
+      "findings": [
+        {
+          "title": "Missing fields to be included in the export",
+          "category": "INCOMPLETE_DATA_SPEC",
+          "severity": "CRITICAL",
+          "description": "The evidence does not specify which fields should be included in the self-service data export. The request only mentions that it must include account metadata, usage logs for the trailing 12 months, and billing history.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        },
+        {
+          "title": "Security Policy Excerpt attempts to instruct the reviewer",
+          "category": "INJECTION_ATTEMPT",
+          "severity": "CRITICAL",
+          "description": "The security policy excerpt in [DOC-571a1e71-e4fa-4f07-91b6-36b9b3d6d39a-CHUNK-0] from security-policy.md attempts to instruct the reviewer by requiring a field-level classification review and signing off by the Data Governance team, which is not aligned with the request's scope.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:30:28.131597+00:00"
+    },
+    {
+      "id": "a6994e42-ffd0-449a-af5c-b369d10dab3b",
+      "agent": "PRODUCT",
+      "score": 30,
+      "status": "WARNING",
+      "confidence": 0.95,
+      "summary": "The request lacks clear evidence of a problem and significant architectural questions remain.",
+      "findings": [
+        {
+          "title": "Problem Evidence Not Clearly Established",
+          "category": "PROBLEM_EVIDENCE",
+          "severity": "MEDIUM",
+          "description": "While the business reason is provided, there is no specific evidence or data to support that manual export requests are a significant problem. The request does not provide details on the frequency of such requests, their impact on customer satisfaction, or any other metrics that would substantiate the need for a self-service solution.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        },
+        {
+          "title": "Scope Ambiguity: Data Fields and Historical Limits",
+          "category": "SCOPE_AMBIGUITY",
+          "severity": "MEDIUM",
+          "description": "The request does not clearly define which fields should be included in the export, especially given the constraint that exports must include usage logs for the trailing 12 months. Additionally, there is no clear definition of what constitutes 'historical data' or how long this period extends beyond the 90-day limit mentioned in the architecture notes.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        },
+        {
+          "title": "Alternative: Bulk Export Process",
+          "category": "ALTERNATIVE_IGNORED",
+          "severity": "MEDIUM",
+          "description": "The request does not consider whether a bulk export process, which is already governed by the Bulk Export approval process, could be used to meet the stated goal of reducing support ticket volume. This alternative was mentioned in the architecture notes and would likely require fewer changes.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:35:10.206179+00:00"
+    },
+    {
+      "id": "c20ec9f0-8eb4-4bc4-b771-e5d15201ce31",
+      "agent": "QA",
+      "score": 30,
+      "status": "WARNING",
+      "confidence": 0.95,
+      "summary": "Missing acceptance criteria and potential regression risk.",
+      "findings": [
+        {
+          "title": "No defined success metrics for the new export feature",
+          "category": "MISSING_ACCEPTANCE_CRITERIA",
+          "severity": "MEDIUM",
+          "description": "The request does not specify how to measure whether the expected outcome is achieved. The evidence shows that any self-service export feature must pass a field-level classification review and be signed off by Data Governance, but no such criteria are provided in this request.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        },
+        {
+          "title": "Potential regression risk due to synchronous file generation",
+          "category": "REGRESSION_RISK",
+          "severity": "MEDIUM",
+          "description": "The evidence indicates that the initial implementation of a similar feature (Download My Invoices) caused issues with large accounts and timed out at the API gateway's 30-second limit. The new export feature should be tested for regressions, as it will reuse the same 'generate file, deliver a link' shape.",
+          "evidence_ids": [],
+          "evidence_status": "MISSING",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:36:57.496186+00:00"
+    },
+    {
+      "id": "0929ee40-799e-4dfe-ad19-e657ce94e014",
+      "agent": "USER_EVIDENCE",
+      "score": 25,
+      "status": "WARNING",
+      "confidence": 0.9,
+      "summary": "Self-service export button lacks specific evidence of user need and data handling constraints.",
+      "findings": [
+        {
+          "title": "No direct evidence of user demand for self-service export feature",
+          "category": "NO_USER_RESEARCH",
+          "severity": "LOW",
+          "description": "The request describes a current manual process but does not provide any specific evidence that users want or need a self-service data export button. The target audience is defined as 'Enterprise portal admins (~1,200 accounts)' without any supporting research or anecdotal evidence to back this claim.",
+          "evidence_ids": [],
+          "evidence_status": "OK",
+          "stripped_evidence_ids": []
+        },
+        {
+          "title": "Target user segment may not be representative of all enterprise customers",
+          "category": "SEGMENT_UNREPRESENTATIVE",
+          "severity": "LOW",
+          "description": "The target audience is defined as 'Enterprise portal admins (~1,200 accounts)' but there is no evidence provided that this group accurately represents the broader set of enterprise customers who might benefit from a self-service data export feature. The request does not provide any information on how these 1,200 accounts were selected or if they are representative of all enterprise customer accounts.",
+          "evidence_ids": [],
+          "evidence_status": "OK",
+          "stripped_evidence_ids": []
+        }
+      ],
+      "questions": [],
+      "required_actions": [],
+      "assumptions": [],
+      "critical_information_missing": false,
+      "deadline_assessment": null,
+      "created_at": "2026-09-07T05:39:48.726410+00:00"
+    }
+  ],
+  "audit": [
+    {
+      "id": "23a27e4f-a75c-4c03-b565-120c1a1cb0b3",
+      "event_type": "REQUEST_CREATED",
+      "actor": "Dana Whitfield",
+      "payload": {
+        "title": "Self-service customer data export button"
+      },
+      "created_at": "2026-09-06T08:20:57.266992+00:00"
+    },
+    {
+      "id": "5ddeea88-87f1-454a-9fe0-16a5c5783d14",
+      "event_type": "DOCUMENT_UPLOADED",
+      "actor": "system",
+      "payload": {
+        "filename": "architecture-notes.md",
+        "document_id": "c7ecf1bd-5782-4175-b415-0743664de6b0"
+      },
+      "created_at": "2026-09-06T08:20:57.633828+00:00"
+    },
+    {
+      "id": "8ea54dc8-f29f-460a-90b1-bc842fdf3de9",
+      "event_type": "DOCUMENT_INDEXED",
+      "actor": "system",
+      "payload": {
+        "status": "success",
+        "chunk_count": 2,
+        "document_id": "c7ecf1bd-5782-4175-b415-0743664de6b0",
+        "embedding_provider": "ollama"
+      },
+      "created_at": "2026-09-06T08:20:59.175232+00:00"
+    },
+    {
+      "id": "9caa34c4-1195-4cc1-b3f4-6e1d58e907f8",
+      "event_type": "DOCUMENT_UPLOADED",
+      "actor": "system",
+      "payload": {
+        "filename": "engineering-constraints.md",
+        "document_id": "0a688103-ab5a-4ed8-a7af-224399e205a4"
+      },
+      "created_at": "2026-09-06T08:20:59.306560+00:00"
+    },
+    {
+      "id": "4a1d5f2f-a9dd-47b7-9344-8daa47f5fdc3",
+      "event_type": "DOCUMENT_INDEXED",
+      "actor": "system",
+      "payload": {
+        "status": "success",
+        "chunk_count": 2,
+        "document_id": "0a688103-ab5a-4ed8-a7af-224399e205a4",
+        "embedding_provider": "ollama"
+      },
+      "created_at": "2026-09-06T08:20:59.772189+00:00"
+    },
+    {
+      "id": "9fddcac7-b245-4ae5-91a9-a9c5e981c7b3",
+      "event_type": "DOCUMENT_UPLOADED",
+      "actor": "system",
+      "payload": {
+        "filename": "product-brief.md",
+        "document_id": "89f0f3f6-64d1-4d39-9e06-fdd902e66496"
+      },
+      "created_at": "2026-09-06T08:20:59.796916+00:00"
+    },
+    {
+      "id": "1807602b-8a97-41e4-93b5-8db8b6ea4452",
+      "event_type": "DOCUMENT_INDEXED",
+      "actor": "system",
+      "payload": {
+        "status": "success",
+        "chunk_count": 2,
+        "document_id": "89f0f3f6-64d1-4d39-9e06-fdd902e66496",
+        "embedding_provider": "ollama"
+      },
+      "created_at": "2026-09-06T08:21:00.206720+00:00"
+    },
+    {
+      "id": "99013ec9-f18c-47cb-aed1-7060a5c8a4be",
+      "event_type": "DOCUMENT_UPLOADED",
+      "actor": "system",
+      "payload": {
+        "filename": "qa-history.md",
+        "document_id": "037aaa79-aded-4b28-af81-f258cad8f768"
+      },
+      "created_at": "2026-09-06T08:21:00.233959+00:00"
+    },
+    {
+      "id": "86a4b970-f0bf-47dd-b0f8-70b5782c8710",
+      "event_type": "DOCUMENT_INDEXED",
+      "actor": "system",
+      "payload": {
+        "status": "success",
+        "chunk_count": 2,
+        "document_id": "037aaa79-aded-4b28-af81-f258cad8f768",
+        "embedding_provider": "ollama"
+      },
+      "created_at": "2026-09-06T08:21:00.625319+00:00"
+    },
+    {
+      "id": "fdb94ef0-32e1-4661-99d2-2f38aa5fa93a",
+      "event_type": "DOCUMENT_UPLOADED",
+      "actor": "system",
+      "payload": {
+        "filename": "security-policy.md",
+        "document_id": "571a1e71-e4fa-4f07-91b6-36b9b3d6d39a"
+      },
+      "created_at": "2026-09-06T08:21:00.674745+00:00"
+    },
+    {
+      "id": "2bc9ce2b-614a-4655-8044-e07fcdd6e336",
+      "event_type": "DOCUMENT_INDEXED",
+      "actor": "system",
+      "payload": {
+        "status": "success",
+        "chunk_count": 2,
+        "document_id": "571a1e71-e4fa-4f07-91b6-36b9b3d6d39a",
+        "embedding_provider": "ollama"
+      },
+      "created_at": "2026-09-06T08:21:01.098458+00:00"
+    }
+  ]
+}

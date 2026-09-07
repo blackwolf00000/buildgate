@@ -1,4 +1,8 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+// An empty NEXT_PUBLIC_API_BASE_URL means "same origin", which is how the
+// hosted demo runs: the Next.js route handlers under /app/api serve the same
+// contract the FastAPI backend does. `??` rather than `||` so the empty string
+// is honoured instead of falling back to localhost.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export type RequestStatus =
   | "DRAFT"

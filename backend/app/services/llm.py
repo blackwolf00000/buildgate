@@ -74,6 +74,9 @@ class OllamaProvider:
             # Constrain generation to the schema at the model call, rather than
             # asking for JSON in the prompt and repairing the result.
             "format": schema,
+            # Hold the model in memory between agents. A board of seven runs
+            # back to back, and reloading costs ~9s each time.
+            "keep_alive": "10m",
             "options": {
                 # Determinism: identical inputs must produce identical output.
                 "temperature": self.temperature,

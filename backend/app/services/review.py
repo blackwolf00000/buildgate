@@ -337,3 +337,35 @@ def review_is_complete(run: ReviewRun) -> bool:
     """True when every expected agent returned. Drives the engine's stage 1."""
     completed = {r.agent for r in run.agent_runs if r.state is AgentRunState.COMPLETE}
     return completed >= set(EXPECTED_AGENTS)
+
+
+def recover_orphaned_runs(db: Session) -> int:
+    """Fail any run left in flight by a process that is no longer running.
+
+    Review runs execute as in-process background tasks, so an API restart --
+    a deploy, a crash, a `docker compose up --build` -- leaves the run row
+    PENDING or RUNNING with nothing driving it. Because `start_review` refuses
+    to start a second run while one is in flight, a single orphan blocks every
+    future review of that request permanently.
+
+    Called once on startup. Anything still in flight at that moment cannot
+    belong to this process, so it is safe to close out.
+    """
+    orphans = (
+        db.query(ReviewRun)
+        .filter(ReviewRun.status.in_([ReviewRunStatus.PENDING, ReviewRunStatus.RUNNING]))
+        .all()
+    )
+    for run in orphans:
+        for agent_run in run.agent_runs:
+            if agent_run.state in (AgentRunState.PENDING, AgentRunState.RUNNING):
+                agent_run.state = AgentRunState.FAILED
+                agent_run.error_class = "RunInterrupted"
+        run.status = ReviewRunStatus.FAILED
+        run.error = "Interrupted: the API restarted while this run was in flight"
+        run.completed_at = datetime.now(timezone.utc)
+
+    if orphans:
+        db.commit()
+        logger.warning("Recovered %d orphaned review run(s) on startup", len(orphans))
+    return len(orphans)

@@ -14,6 +14,8 @@ pinned: false
 
 # BuildGate
 
+Licensed under the [MIT License](LICENSE).
+
 An AI governance layer that challenges management requests before engineering
 capacity is committed — running entirely inside the customer's environment.
 

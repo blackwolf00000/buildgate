@@ -256,3 +256,47 @@ when ids were stripped the badge says how many were fabricated (the ids
 themselves are on the tooltip). Hiding an ungrounded finding would be the wrong
 call in a governance tool: the fact that a reviewer asserted something it could
 not support is itself information the reader needs.
+
+## The demo BLOCK is measured, not assumed
+
+The seeded demo is meant to BLOCK via `B2_CRITICAL_FINDING`, with SECURITY
+quoting the customer's own policy. After the verdict-quality fix biased
+severity downward, `VERDICT_COHERENCE_RULE` was reworded to say it maps
+severity to status and is not an instruction to prefer low severities. That
+reword had never been run against the model. It has now, with no further
+prompt change.
+
+Measured with `app.scripts.board_run` on a freshly seeded request,
+`qwen2.5:3b`, `num_ctx` 3072, sequential agents, `web` stopped:
+
+| Run | Decision | Rules fired | SECURITY | Elapsed |
+|---|---|---|---|---|
+| baseline | BLOCKED | B2, R2, R3 | CRITICAL `POLICY_VIOLATION`, conf 0.90, cites `security-policy.md` | 315s |
+| 1/3 | BLOCKED | B2, R2, R3 | same | 312s |
+| 2/3 | BLOCKED | B2, R2, R3 | same | 308s |
+| 3/3 | BLOCKED | B2, R2, R3 | same | 309s |
+
+The finding reads "Self-service export feature bypasses mandatory Data
+Governance review and authentication requirements." All four runs produced
+identical agent output. At temperature 0 with a fixed seed that is expected:
+it proves the outcome is stable on this input, not that it is robust to a
+different request, model, or corpus.
+
+What the runs also show, recorded rather than fixed here:
+
+- **Verdicts do not fully follow the coherence rule.** SECURITY returns FAIL
+  while carrying a CRITICAL finding (the rule says BLOCK); PRODUCT and
+  USER_EVIDENCE return FAIL with only MEDIUM findings (the rule says WARNING).
+  The decision is unaffected because B2 reads finding severity, not the agent
+  verdict, but the rule is not being obeyed.
+- **Spread is narrow.** Every agent reports confidence 0.90, scores sit at
+  20-30. BA also raises a CRITICAL (`INCOMPLETE_DATA_SPEC`).
+- **Three MEDIUM findings carry no surviving evidence** (PRODUCT x2,
+  USER_EVIDENCE), and one fabricated id set is stripped every run.
+- **Title overlap measures 0.26** (ARCHITECTURE vs QA) with the harness's
+  metric: Jaccard over each agent's combined finding-title vocabulary. The
+  earlier 0.12 came from a scratch script that was never committed, so the two
+  numbers may not be comparable; this is not yet established as a regression.
+- **A full board took ~310s**, roughly five minutes, against the 17-25 minutes
+  recorded before the latency work. That bears on the five-minute demo target
+  (build-plan feature 22) but was measured with no other load and only here.

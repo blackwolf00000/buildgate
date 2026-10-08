@@ -37,7 +37,7 @@ Do not renumber completed features; their archived specs refer to those IDs.
 
 ### Roadmap
 
-- [ ] 18. **Reliable demo BLOCK** - re-run the full board and get the seeded scenario to BLOCK via `B2` (SECURITY CRITICAL citing `security-policy.md`) across repeated runs, or record why not
+- [x] 18. **Reliable demo BLOCK** - re-run the full board and get the seeded scenario to BLOCK via `B2` (SECURITY CRITICAL citing `security-policy.md`) across repeated runs, or record why not
 - [ ] 19. **Demo snapshot test** - record a known-good run to `tests/fixtures/demo_run.json` and add a test locking the demo outcome
 - [ ] 20. **Demo polish and README refresh** - loading and error states throughout, consistent badges, README demo walkthrough for the seven-agent board, honest limitations section
 - [ ] 21. **Verify the Hugging Face image** - build and boot the single-container image and confirm seed, review, and decision work end to end

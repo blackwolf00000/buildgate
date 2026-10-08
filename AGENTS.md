@@ -77,19 +77,19 @@ Easy to break without noticing:
 
 ### Known open problems
 
-- **The demo does not reliably BLOCK.** The phase plan wants the seeded scenario
-  to BLOCK via `B2_CRITICAL_FINDING` (SECURITY CRITICAL citing
-  `security-policy.md`). A verdict-quality fix biased severity downward,
-  SECURITY softened the mandatory Data Governance sign-off to MEDIUM, and the
-  board settled on REVISE via `R3_MULTIPLE_WARNINGS`. `VERDICT_COHERENCE_RULE`
-  in `app/agents/base.py` was reworded to stop that, but **the reword has never
-  been confirmed against the model**. The tension: one shared prompt has to
-  spread verdicts *and* let a genuine policy violation reach CRITICAL. If
-  rewording cannot hold both, move the severity judgement into each agent's own
-  `scoring_guidance`, or accept a demo that REVISEs and say so.
+- **The demo BLOCKs, but verdict quality is uneven.** The seeded scenario
+  BLOCKs via `B2_CRITICAL_FINDING` (SECURITY CRITICAL citing
+  `security-policy.md`, conf 0.90) on 4/4 measured runs with identical output
+  (see `docs/DECISIONS.md`, "The demo BLOCK is measured"). Agents still do not
+  obey `VERDICT_COHERENCE_RULE` fully (SECURITY says FAIL with a CRITICAL;
+  PRODUCT and USER_EVIDENCE say FAIL on MEDIUMs), every agent reports 0.90
+  confidence, and harness title overlap is 0.26. Any prompt change must be
+  re-checked with `python -m app.scripts.board_run`, because the BLOCK has
+  flipped to REVISE before.
 - **No demo fixture or snapshot test** (`tests/fixtures/demo_run.json`).
-- **Board latency.** Sequential agents now take ~100-145s each, so a full board
-  is still well over the five-minute demo target. Concurrency exists
+- **Board latency.** A full sequential board measured ~310s on the seeded
+  request (October 2026), near the five-minute demo target; earlier notes of
+  ~100-145s per agent predate that measurement. Concurrency exists
   (`review_concurrency`) but defaults to 1: at 3 it was markedly worse on this
   host, because CPU inference here is memory-bandwidth bound. Faster models
   (`qwen2.5:0.5b`) stop actually reviewing.
